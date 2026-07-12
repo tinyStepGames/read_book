@@ -24,6 +24,9 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
   List<Map<String, String>> _episodes = [];
   bool _isLoading = true;
 
+  /// 目次一覧とスクロールバーで共用するControllerです。
+  final ScrollController _episodeScrollController = ScrollController();
+
   /// エピソードの掲載日を画面表示用に整形します。
   ///
   /// なろう・カクヨムで使用される可能性のある複数のキーに対応します。
@@ -84,6 +87,12 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
   void initState() {
     super.initState();
     _loadEpisodes();
+  }
+
+  @override
+  void dispose() {
+    _episodeScrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadEpisodes() async {
@@ -183,7 +192,12 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
     if (!mounted) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('ダウンロードを開始しました。他の画面に移動しても続行されます。')),
+      const SnackBar(
+        content: Text(
+          'ダウンロードを開始しました。'
+          '他の画面に移動しても続行されます。',
+        ),
+      ),
     );
   }
 
@@ -332,6 +346,8 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
                         color: Colors.grey,
                       ),
                     ),
+
+                    // あらすじ
                     if (work.summary.trim().isNotEmpty) ...[
                       const SizedBox(height: 8),
                       Container(
@@ -339,13 +355,13 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
                         width: double.infinity,
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .surfaceContainerHighest
+                          color: theme.colorScheme.surfaceContainerHighest
                               .withValues(alpha: 0.35),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Scrollbar(
+                          thumbVisibility: false,
+                          trackVisibility: false,
                           child: SingleChildScrollView(
                             primary: false,
                             child: Text(
@@ -357,6 +373,7 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
                       ),
                     ],
 
+                    // タグ
                     if (work.tags.isNotEmpty) ...[
                       const SizedBox(height: 8),
                       Wrap(
@@ -376,6 +393,7 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
                             .toList(),
                       ),
                     ],
+
                     const SizedBox(height: 8),
                     Align(
                       alignment: Alignment.centerRight,
@@ -388,6 +406,7 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
                   ],
                 ),
               ),
+
               const Divider(height: 1),
 
               // 目次
@@ -396,134 +415,151 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
                     ? const Center(child: CircularProgressIndicator())
                     : _episodes.isEmpty
                     ? const Center(child: Text('目次がありません'))
-                    : ListView.separated(
-                        itemCount: _episodes.length,
-                        separatorBuilder: (_, __) {
-                          return const Divider(height: 1);
-                        },
-                        itemBuilder: (context, index) {
-                          final entry = _episodes[index];
+                    : Scrollbar(
+                        controller: _episodeScrollController,
 
-                          final episodeNo =
-                              int.tryParse(entry['episodeNo'] ?? '') ??
-                              index + 1;
+                        // スクロール中だけ表示し、停止後は消します。
+                        thumbVisibility: false,
+                        trackVisibility: false,
 
-                          final title = entry['title'] ?? '第$episodeNo話';
+                        interactive: true,
+                        thickness: 6,
+                        radius: const Radius.circular(8),
+                        scrollbarOrientation: ScrollbarOrientation.right,
+                        child: ListView.separated(
+                          controller: _episodeScrollController,
+                          itemCount: _episodes.length,
+                          separatorBuilder: (_, __) {
+                            return const Divider(height: 1);
+                          },
+                          itemBuilder: (context, index) {
+                            final entry = _episodes[index];
 
-                          final publishedDate = _formatPublishedDate(entry);
+                            final episodeNo =
+                                int.tryParse(entry['episodeNo'] ?? '') ??
+                                index + 1;
 
-                          final downloaded = widget.repository.isDownloaded(
-                            work,
-                            episodeNo,
-                          );
+                            final title = entry['title'] ?? '第$episodeNo話';
 
-                          final isRead = widget.repository.isEpisodeRead(
-                            work.workId,
-                            episodeNo,
-                          );
+                            final publishedDate = _formatPublishedDate(entry);
 
-                          return GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onTap: () {
-                              _openReader(episodeNo, title);
-                            },
-                            child: Container(
-                              constraints: const BoxConstraints(minHeight: 68),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 9,
-                              ),
-                              child: Row(
-                                children: [
-                                  // 各話のダウンロードボタン
-                                  GestureDetector(
-                                    behavior: HitTestBehavior.opaque,
-                                    onTap: downloaded
-                                        ? null
-                                        : () {
-                                            _downloadSingle(
-                                              episodeNo,
-                                              title,
-                                              entry['publishedAt'] ??
-                                                  entry['update'] ??
-                                                  entry['published'] ??
-                                                  entry['updatedAt'] ??
-                                                  '',
-                                            );
-                                          },
+                            final downloaded = widget.repository.isDownloaded(
+                              work,
+                              episodeNo,
+                            );
 
-                                    child: SizedBox(
-                                      width: 40,
-                                      height: 48,
-                                      child: Center(
-                                        child: Icon(
-                                          downloaded
-                                              ? Icons.download_done
-                                              : Icons.download_outlined,
-                                          color: downloaded
-                                              ? Colors.teal
-                                              : Colors.grey,
+                            final isRead = widget.repository.isEpisodeRead(
+                              work.workId,
+                              episodeNo,
+                            );
+
+                            return GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: () {
+                                _openReader(episodeNo, title);
+                              },
+                              child: Container(
+                                constraints: const BoxConstraints(
+                                  minHeight: 68,
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 9,
+                                ),
+                                child: Row(
+                                  children: [
+                                    // 各話のダウンロードボタン
+                                    GestureDetector(
+                                      behavior: HitTestBehavior.opaque,
+                                      onTap: downloaded
+                                          ? null
+                                          : () {
+                                              _downloadSingle(
+                                                episodeNo,
+                                                title,
+                                                entry['publishedAt'] ??
+                                                    entry['update'] ??
+                                                    entry['published'] ??
+                                                    entry['updatedAt'] ??
+                                                    '',
+                                              );
+                                            },
+                                      child: SizedBox(
+                                        width: 40,
+                                        height: 48,
+                                        child: Center(
+                                          child: Icon(
+                                            downloaded
+                                                ? Icons.download_done
+                                                : Icons.download_outlined,
+                                            color: downloaded
+                                                ? Colors.teal
+                                                : Colors.grey,
+                                          ),
                                         ),
                                       ),
                                     ),
-                                  ),
-                                  const SizedBox(width: 8),
 
-                                  // タイトルと掲載日
-                                  Expanded(
-                                    child: Column(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          title,
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            fontSize: 14,
-                                            color: isRead ? Colors.grey : null,
-                                          ),
-                                        ),
-                                        if (publishedDate.isNotEmpty) ...[
-                                          const SizedBox(height: 4),
+                                    const SizedBox(width: 8),
+
+                                    // タイトルと掲載日
+                                    Expanded(
+                                      child: Column(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
                                           Text(
-                                            '掲載日：$publishedDate',
-                                            maxLines: 1,
+                                            title,
+                                            maxLines: 2,
                                             overflow: TextOverflow.ellipsis,
                                             style: TextStyle(
-                                              fontSize: 11,
+                                              fontSize: 14,
                                               color: isRead
                                                   ? Colors.grey
-                                                  : theme
-                                                        .textTheme
-                                                        .bodySmall
-                                                        ?.color
-                                                        ?.withValues(
-                                                          alpha: 0.65,
-                                                        ),
+                                                  : null,
                                             ),
                                           ),
+                                          if (publishedDate.isNotEmpty) ...[
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              '掲載日：$publishedDate',
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: isRead
+                                                    ? Colors.grey
+                                                    : theme
+                                                          .textTheme
+                                                          .bodySmall
+                                                          ?.color
+                                                          ?.withValues(
+                                                            alpha: 0.65,
+                                                          ),
+                                              ),
+                                            ),
+                                          ],
                                         ],
-                                      ],
+                                      ),
                                     ),
-                                  ),
 
-                                  // 既読チェック
-                                  if (isRead) ...[
-                                    const SizedBox(width: 8),
-                                    const Icon(
-                                      Icons.check,
-                                      color: Colors.grey,
-                                      size: 20,
-                                    ),
+                                    // 既読チェック
+                                    if (isRead) ...[
+                                      const SizedBox(width: 8),
+                                      const Icon(
+                                        Icons.check,
+                                        color: Colors.grey,
+                                        size: 20,
+                                      ),
+                                    ],
                                   ],
-                                ],
+                                ),
                               ),
-                            ),
-                          );
-                        },
+                            );
+                          },
+                        ),
                       ),
               ),
             ],

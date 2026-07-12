@@ -83,16 +83,11 @@ class _SearchPaginationBar extends StatelessWidget {
         top: false,
         child: Container(
           width: double.infinity,
-          padding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 8,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           decoration: BoxDecoration(
             border: Border(
               top: BorderSide(
-                color: Theme.of(
-                  context,
-                ).dividerColor.withValues(alpha: 0.4),
+                color: Theme.of(context).dividerColor.withValues(alpha: 0.4),
               ),
             ),
           ),
@@ -124,21 +119,18 @@ class _SearchPaginationBar extends StatelessWidget {
                       borderRadius: BorderRadius.circular(6),
                     ),
                   ),
-                  items: List<DropdownMenuItem<int>>.generate(
-                    maxPage,
-                    (index) {
-                      final page = index + 1;
+                  items: List<DropdownMenuItem<int>>.generate(maxPage, (index) {
+                    final page = index + 1;
 
-                      return DropdownMenuItem<int>(
-                        value: page,
-                        child: Text(
-                          '$page ページ',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      );
-                    },
-                  ),
+                    return DropdownMenuItem<int>(
+                      value: page,
+                      child: Text(
+                        '$page ページ',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    );
+                  }),
                   onChanged: isLoading
                       ? null
                       : (page) {
@@ -222,26 +214,19 @@ class _SearchScreenState extends State<SearchScreen> {
 
     _keywordController.addListener(_onKeywordChanged);
 
-    widget.searchRequestController.addListener(
-      _onExternalSearchRequest,
-    );
+    widget.searchRequestController.addListener(_onExternalSearchRequest);
 
     // lateフィールドへアクセスしてリスナーを開始します。
     _downloadSubscription;
 
-    _search(
-      page: 1,
-      pushHistory: false,
-    );
+    _search(page: 1, pushHistory: false);
   }
 
   @override
   void dispose() {
     _downloadSubscription.cancel();
 
-    widget.searchRequestController.removeListener(
-      _onExternalSearchRequest,
-    );
+    widget.searchRequestController.removeListener(_onExternalSearchRequest);
 
     _keywordController.removeListener(_onKeywordChanged);
 
@@ -271,8 +256,7 @@ class _SearchScreenState extends State<SearchScreen> {
     _authorNameOnly = request.authorNameOnly;
     _keywordOnly = request.keywordOnly;
 
-    if (request.siteIndex >= 0 &&
-        request.siteIndex < Site.values.length) {
+    if (request.siteIndex >= 0 && request.siteIndex < Site.values.length) {
       _selectedSite = Site.values[request.siteIndex];
     } else {
       _selectedSite = Site.narou;
@@ -280,19 +264,13 @@ class _SearchScreenState extends State<SearchScreen> {
 
     _history.clear();
 
-    _search(
-      page: 1,
-      pushHistory: false,
-    );
+    _search(page: 1, pushHistory: false);
 
     widget.searchRequestController.consume();
   }
 
   /// 指定ページの検索結果を取得します。
-  Future<void> _search({
-    required int page,
-    bool pushHistory = true,
-  }) async {
+  Future<void> _search({required int page, bool pushHistory = true}) async {
     if (_isLoading) {
       return;
     }
@@ -329,8 +307,7 @@ class _SearchScreenState extends State<SearchScreen> {
         // 1ページ目  = 1
         // 2ページ目  = 51
         // 40ページ目 = 1951
-        final start =
-            ((normalizedPage - 1) * _narouPageSize) + 1;
+        final start = ((normalizedPage - 1) * _narouPageSize) + 1;
 
         results = await _narouApiClient.search(
           word: searchWord,
@@ -407,19 +384,13 @@ class _SearchScreenState extends State<SearchScreen> {
       return;
     }
 
-    final normalizedPage = page.clamp(
-      1,
-      _currentMaxPage,
-    ).toInt();
+    final normalizedPage = page.clamp(1, _currentMaxPage).toInt();
 
     if (normalizedPage == _page) {
       return;
     }
 
-    _search(
-      page: normalizedPage,
-      pushHistory: false,
-    );
+    _search(page: normalizedPage, pushHistory: false);
   }
 
   void _manualSearch() {
@@ -464,10 +435,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
     _history.clear();
 
-    _search(
-      page: 1,
-      pushHistory: false,
-    );
+    _search(page: 1, pushHistory: false);
   }
 
   void _changeSite(Site nextSite) {
@@ -486,10 +454,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
     // カクヨムでキーワードが空の場合は、
     // KakuyomuScraper側で新着小説を取得します。
-    _search(
-      page: 1,
-      pushHistory: false,
-    );
+    _search(page: 1, pushHistory: false);
   }
 
   bool get _isCurrentSearchFavorited {
@@ -513,11 +478,9 @@ class _SearchScreenState extends State<SearchScreen> {
     final keyword = _keywordController.text.trim();
 
     if (keyword.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('検索キーワードを入力してください'),
-        ),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('検索キーワードを入力してください')));
       return;
     }
 
@@ -530,19 +493,15 @@ class _SearchScreenState extends State<SearchScreen> {
     );
 
     if (existing != null) {
-      await widget.repository.removeSearchFavorite(
-        existing.targetKey,
-      );
+      await widget.repository.removeSearchFavorite(existing.targetKey);
 
       if (!mounted) {
         return;
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('検索のお気に入りを解除しました'),
-        ),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('検索のお気に入りを解除しました')));
     } else {
       await widget.repository.addSearchFavorite(
         keyword: keyword,
@@ -575,10 +534,7 @@ class _SearchScreenState extends State<SearchScreen> {
   ) async {
     final work = widget.repository.workFromNarouResult(result);
 
-    await widget.repository.setFavoriteColor(
-      work,
-      color,
-    );
+    await widget.repository.setFavoriteColor(work, color);
 
     if (!mounted) {
       return;
@@ -611,9 +567,7 @@ class _SearchScreenState extends State<SearchScreen> {
     _search(page: 1);
   }
 
-  Future<void> _download(
-    NarouSearchResult result,
-  ) async {
+  Future<void> _download(NarouSearchResult result) async {
     final work = widget.repository.workFromNarouResult(result);
 
     await widget.repository.saveWork(work);
@@ -622,16 +576,12 @@ class _SearchScreenState extends State<SearchScreen> {
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('目次を確認しています…'),
-      ),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('目次を確認しています…')));
 
     try {
-      final episodeList = await widget.repository.fetchEpisodeList(
-        work,
-      );
+      final episodeList = await widget.repository.fetchEpisodeList(work);
 
       if (!mounted) {
         return;
@@ -656,11 +606,9 @@ class _SearchScreenState extends State<SearchScreen> {
           ),
         );
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('新しくダウンロードする話はありません'),
-          ),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('新しくダウンロードする話はありません')));
       }
 
       setState(() {});
@@ -669,59 +617,41 @@ class _SearchScreenState extends State<SearchScreen> {
         return;
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'ダウンロードの開始に失敗しました: $error',
-          ),
-        ),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('ダウンロードの開始に失敗しました: $error')));
     }
   }
 
-  Future<void> _deleteDownload(
-    NarouSearchResult result,
-  ) async {
-    await widget.repository.deleteAllDownloads(
-      result.ncode,
-    );
+  Future<void> _deleteDownload(NarouSearchResult result) async {
+    await widget.repository.deleteAllDownloads(result.ncode);
 
     if (!mounted) {
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('ダウンロードファイルを削除しました'),
-      ),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('ダウンロードファイルを削除しました')));
 
     setState(() {});
   }
 
-  Future<void> _deleteRead(
-    NarouSearchResult result,
-  ) async {
-    await widget.repository.deleteAllReadAndCache(
-      result.ncode,
-    );
+  Future<void> _deleteRead(NarouSearchResult result) async {
+    await widget.repository.deleteAllReadAndCache(result.ncode);
 
     if (!mounted) {
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('既読記録とキャッシュを削除しました'),
-      ),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('既読記録とキャッシュを削除しました')));
 
     setState(() {});
   }
 
-  Future<void> _openDetail(
-    NarouSearchResult result,
-  ) async {
+  Future<void> _openDetail(NarouSearchResult result) async {
     final work = widget.repository.workFromNarouResult(result);
 
     await widget.repository.saveWork(work);
@@ -732,10 +662,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
     await Navigator.of(context).push<void>(
       noAnimationRoute<void>(
-        WorkDetailScreen(
-          repository: widget.repository,
-          work: work,
-        ),
+        WorkDetailScreen(repository: widget.repository, work: work),
       ),
     );
 
@@ -748,12 +675,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Widget _buildSiteSelector() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        12,
-        8,
-        12,
-        6,
-      ),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
       child: SizedBox(
         width: double.infinity,
         child: SegmentedButton<Site>(
@@ -789,10 +711,7 @@ class _SearchScreenState extends State<SearchScreen> {
     if (_selectedSite == Site.kakuyomu &&
         _keywordController.text.trim().isEmpty) {
       return const Center(
-        child: Text(
-          'カクヨムの新着小説はありません',
-          textAlign: TextAlign.center,
-        ),
+        child: Text('カクヨムの新着小説はありません', textAlign: TextAlign.center),
       );
     }
 
@@ -809,50 +728,54 @@ class _SearchScreenState extends State<SearchScreen> {
       return _buildEmptyMessage();
     }
 
-    return ListView.builder(
+    return Scrollbar(
       controller: _scrollController,
-      itemCount: _results.length,
-      itemBuilder: (context, index) {
-        final result = _results[index];
 
-        return ExpandableWorkCard(
-          work: result,
-          favoriteColor: widget.repository.favoriteColorOf(
-            result.ncode,
-          ),
-          onFavoriteChanged: (color) {
-            _onFavoriteChanged(result, color);
-          },
-          onOpenDetail: () {
-            _openDetail(result);
-          },
-          onDownload: () {
-            _download(result);
-          },
-          onSearchAuthor: _searchByAuthor,
-          onSearchTag: _searchByTag,
-          hasAnyRead: widget.repository.hasAnyRead(
-            result.ncode,
-          ),
-          hasAnyDownload: widget.repository.hasAnyDownload(
-            result.ncode,
-          ),
-          onDeleteDownload: () {
-            _deleteDownload(result);
-          },
-          onDeleteRead: () {
-            _deleteRead(result);
-          },
-        );
-      },
+      // スクロール中だけ表示し、停止後は自動的に消します。
+      thumbVisibility: false,
+      trackVisibility: false,
+
+      // 表示中のバーをドラッグして移動できます。
+      interactive: true,
+      thickness: 6,
+      radius: const Radius.circular(8),
+      scrollbarOrientation: ScrollbarOrientation.right,
+      child: ListView.builder(
+        controller: _scrollController,
+        itemCount: _results.length,
+        itemBuilder: (context, index) {
+          final result = _results[index];
+
+          return ExpandableWorkCard(
+            work: result,
+            favoriteColor: widget.repository.favoriteColorOf(result.ncode),
+            onFavoriteChanged: (color) {
+              _onFavoriteChanged(result, color);
+            },
+            onOpenDetail: () {
+              _openDetail(result);
+            },
+            onDownload: () {
+              _download(result);
+            },
+            onSearchAuthor: _searchByAuthor,
+            onSearchTag: _searchByTag,
+            hasAnyRead: widget.repository.hasAnyRead(result.ncode),
+            hasAnyDownload: widget.repository.hasAnyDownload(result.ncode),
+            onDeleteDownload: () {
+              _deleteDownload(result);
+            },
+            onDeleteRead: () {
+              _deleteRead(result);
+            },
+          );
+        },
+      ),
     );
   }
 
   Widget _buildPagination() {
-    final currentPage = _page.clamp(
-      1,
-      _currentMaxPage,
-    ).toInt();
+    final currentPage = _page.clamp(1, _currentMaxPage).toInt();
 
     return _SearchPaginationBar(
       currentPage: currentPage,
@@ -870,32 +793,18 @@ class _SearchScreenState extends State<SearchScreen> {
         title: Row(
           children: [
             IconButton(
-              icon: const Icon(
-                Icons.arrow_back,
-                size: 20,
-              ),
+              icon: const Icon(Icons.arrow_back, size: 20),
               tooltip: '戻る',
-              onPressed: _history.length >= 2 && !_isLoading
-                  ? _goBack
-                  : null,
+              onPressed: _history.length >= 2 && !_isLoading ? _goBack : null,
               padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(
-                minWidth: 32,
-                minHeight: 32,
-              ),
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
             ),
             IconButton(
-              icon: const Icon(
-                Icons.home,
-                size: 20,
-              ),
+              icon: const Icon(Icons.home, size: 20),
               tooltip: 'ホーム',
               onPressed: _isLoading ? null : _goHome,
               padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(
-                minWidth: 32,
-                minHeight: 32,
-              ),
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
             ),
             const SizedBox(width: 4),
             Expanded(
@@ -911,29 +820,19 @@ class _SearchScreenState extends State<SearchScreen> {
                 child: Row(
                   children: [
                     const SizedBox(width: 10),
-                    Icon(
-                      Icons.search,
-                      size: 18,
-                      color: Colors.grey[400],
-                    ),
+                    Icon(Icons.search, size: 18, color: Colors.grey[400]),
                     const SizedBox(width: 6),
                     Expanded(
                       child: TextField(
                         controller: _keywordController,
                         enabled: !_isLoading,
-                        style: const TextStyle(
-                          fontSize: 14,
-                        ),
+                        style: const TextStyle(fontSize: 14),
                         decoration: const InputDecoration(
                           hintText: '検索キーワード　例：異世界 -ハーレム',
-                          hintStyle: TextStyle(
-                            fontSize: 14,
-                          ),
+                          hintStyle: TextStyle(fontSize: 14),
                           border: InputBorder.none,
                           isDense: true,
-                          contentPadding: EdgeInsets.symmetric(
-                            vertical: 10,
-                          ),
+                          contentPadding: EdgeInsets.symmetric(vertical: 10),
                         ),
                         onSubmitted: (_) {
                           _manualSearch();
@@ -952,10 +851,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
                                 // なろうは通常の空検索、
                                 // カクヨムは新着小説を取得します。
-                                _search(
-                                  page: 1,
-                                  pushHistory: false,
-                                );
+                                _search(page: 1, pushHistory: false);
                               },
                         child: Padding(
                           padding: const EdgeInsets.all(6),
@@ -979,32 +875,23 @@ class _SearchScreenState extends State<SearchScreen> {
               _isCurrentSearchFavorited
                   ? Icons.bookmark
                   : Icons.bookmark_border,
-              color: _isCurrentSearchFavorited
-                  ? Colors.amber
-                  : null,
+              color: _isCurrentSearchFavorited ? Colors.amber : null,
             ),
             tooltip: '検索をお気に入り登録',
-            onPressed: _isLoading
-                ? null
-                : _toggleSearchFavorite,
+            onPressed: _isLoading ? null : _toggleSearchFavorite,
           ),
           IconButton(
             icon: const Icon(Icons.search),
             tooltip: '検索',
-            onPressed: _isLoading
-                ? null
-                : _manualSearch,
+            onPressed: _isLoading ? null : _manualSearch,
           ),
         ],
       ),
       body: Column(
         children: [
           _buildSiteSelector(),
-          if (_isLoading)
-            const LinearProgressIndicator(),
-          Expanded(
-            child: _buildResultList(),
-          ),
+          if (_isLoading) const LinearProgressIndicator(),
+          Expanded(child: _buildResultList()),
           _buildPagination(),
         ],
       ),

@@ -470,63 +470,77 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 
   Widget _buildReaderContent() {
-    return GestureDetector(
-      behavior: HitTestBehavior.translucent,
-      onTap: _toggleToolbar,
-      child: SingleChildScrollView(
-        controller: _scrollController,
-        padding: const EdgeInsets.only(bottom: 80),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const SizedBox(height: 12),
+    return Scrollbar(
+      controller: _scrollController,
 
-            // 前の話へ移動
-            _buildNavBox(
-              icon: Icons.keyboard_arrow_up,
-              enabled: !_isLoadingList && _previousEpisode != null,
-              onTap: () {
-                final previousEpisode = _previousEpisode;
+      // 本文をスクロールしている間だけ表示します。
+      thumbVisibility: false,
+      trackVisibility: false,
 
-                if (previousEpisode != null) {
-                  _goToEpisode(previousEpisode);
-                }
-              },
-            ),
+      // バーが表示されている間はドラッグ操作も可能です。
+      interactive: true,
+      thickness: 6,
+      radius: const Radius.circular(8),
+      scrollbarOrientation: ScrollbarOrientation.right,
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: _toggleToolbar,
+        child: SingleChildScrollView(
+          controller: _scrollController,
+          padding: const EdgeInsets.only(right: 10, bottom: 80),
 
-            const SizedBox(height: 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SizedBox(height: 12),
 
-            // 作品・話情報
-            _buildHeader(),
+              // 前の話へ移動
+              _buildNavBox(
+                icon: Icons.keyboard_arrow_up,
+                enabled: !_isLoadingList && _previousEpisode != null,
+                onTap: () {
+                  final previousEpisode = _previousEpisode;
 
-            const Divider(height: 1),
-
-            // 本文
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(
-                _body,
-                style: TextStyle(fontSize: _fontSize, height: 1.6),
+                  if (previousEpisode != null) {
+                    _goToEpisode(previousEpisode);
+                  }
+                },
               ),
-            ),
 
-            const SizedBox(height: 16),
+              const SizedBox(height: 16),
 
-            // 次の話へ移動
-            _buildNavBox(
-              icon: Icons.keyboard_arrow_down,
-              enabled: !_isLoadingList && _nextEpisode != null,
-              onTap: () {
-                final nextEpisode = _nextEpisode;
+              // 作品・話情報
+              _buildHeader(),
 
-                if (nextEpisode != null) {
-                  _goToEpisode(nextEpisode);
-                }
-              },
-            ),
+              const Divider(height: 1),
 
-            const SizedBox(height: 24),
-          ],
+              // 本文
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  _body,
+                  style: TextStyle(fontSize: _fontSize, height: 1.6),
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              // 次の話へ移動
+              _buildNavBox(
+                icon: Icons.keyboard_arrow_down,
+                enabled: !_isLoadingList && _nextEpisode != null,
+                onTap: () {
+                  final nextEpisode = _nextEpisode;
+
+                  if (nextEpisode != null) {
+                    _goToEpisode(nextEpisode);
+                  }
+                },
+              ),
+
+              const SizedBox(height: 24),
+            ],
+          ),
         ),
       ),
     );
