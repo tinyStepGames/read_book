@@ -83,69 +83,144 @@ class _SearchPaginationBar extends StatelessWidget {
         top: false,
         child: Container(
           width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+
+          // iPhoneの横幅に収まるよう、左右の余白を小さくします。
+          padding: const EdgeInsets.symmetric(
+            horizontal: 8,
+            vertical: 8,
+          ),
           decoration: BoxDecoration(
             border: Border(
               top: BorderSide(
-                color: Theme.of(context).dividerColor.withValues(alpha: 0.4),
+                color: Theme.of(
+                  context,
+                ).dividerColor.withValues(alpha: 0.4),
               ),
             ),
           ),
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              ElevatedButton(
-                onPressed: canMovePrevious
-                    ? () => _moveToPage(currentPage - 1)
-                    : null,
-                child: const Text('前のページ'),
-              ),
-              const SizedBox(width: 16),
-              SizedBox(
-                width: 120,
-                child: DropdownButtonFormField<int>(
-                  // ページ変更時に選択表示を確実に更新します。
-                  key: ValueKey<int>(currentPage),
-                  initialValue: currentPage,
-                  isExpanded: true,
-                  menuMaxHeight: 360,
-                  decoration: InputDecoration(
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 10,
+              // 前のページ
+              Expanded(
+                child: SizedBox(
+                  height: 48,
+                  child: ElevatedButton(
+                    onPressed: canMovePrevious
+                        ? () {
+                            _moveToPage(currentPage - 1);
+                          }
+                        : null,
+                    style: ElevatedButton.styleFrom(
+                      minimumSize: Size.zero,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                      ),
                     ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(6),
+                    child: const FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        '前のページ',
+                        maxLines: 1,
+                      ),
                     ),
                   ),
-                  items: List<DropdownMenuItem<int>>.generate(maxPage, (index) {
-                    final page = index + 1;
-
-                    return DropdownMenuItem<int>(
-                      value: page,
-                      child: Text(
-                        '$page ページ',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    );
-                  }),
-                  onChanged: isLoading
-                      ? null
-                      : (page) {
-                          if (page != null) {
-                            _moveToPage(page);
-                          }
-                        },
                 ),
               ),
-              const SizedBox(width: 16),
-              ElevatedButton(
-                onPressed: canMoveNext
-                    ? () => _moveToPage(currentPage + 1)
-                    : null,
-                child: const Text('次のページ'),
+
+              const SizedBox(width: 8),
+
+              // ページ選択
+              Expanded(
+                child: SizedBox(
+                  height: 48,
+                  child: DropdownButtonFormField<int>(
+                    // ページ変更時に選択表示を確実に更新します。
+                    key: ValueKey<int>(currentPage),
+                    initialValue: currentPage,
+                    isExpanded: true,
+                    menuMaxHeight: 360,
+                    decoration: InputDecoration(
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 8,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                    ),
+                    selectedItemBuilder: (context) {
+                      return List<Widget>.generate(
+                        maxPage,
+                        (index) {
+                          final page = index + 1;
+
+                          return Align(
+                            alignment: Alignment.centerLeft,
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                '$page ページ',
+                                maxLines: 1,
+                              ),
+                            ),
+                          );
+                        },
+                      );
+                    },
+                    items: List<DropdownMenuItem<int>>.generate(
+                      maxPage,
+                      (index) {
+                        final page = index + 1;
+
+                        return DropdownMenuItem<int>(
+                          value: page,
+                          child: Text(
+                            '$page ページ',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        );
+                      },
+                    ),
+                    onChanged: isLoading
+                        ? null
+                        : (page) {
+                            if (page != null) {
+                              _moveToPage(page);
+                            }
+                          },
+                  ),
+                ),
+              ),
+
+              const SizedBox(width: 8),
+
+              // 次のページ
+              Expanded(
+                child: SizedBox(
+                  height: 48,
+                  child: ElevatedButton(
+                    onPressed: canMoveNext
+                        ? () {
+                            _moveToPage(currentPage + 1);
+                          }
+                        : null,
+                    style: ElevatedButton.styleFrom(
+                      minimumSize: Size.zero,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                      ),
+                    ),
+                    child: const FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        '次のページ',
+                        maxLines: 1,
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ],
           ),
@@ -154,6 +229,7 @@ class _SearchPaginationBar extends StatelessWidget {
     );
   }
 }
+
 
 class _SearchScreenState extends State<SearchScreen> {
   final NarouApiClient _narouApiClient = NarouApiClient();
