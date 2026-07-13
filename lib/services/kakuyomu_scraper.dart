@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html_parser;
 
@@ -88,6 +89,10 @@ class KakuyomuScraper {
           : 'https://kakuyomu.jp/search',
       queryParameters: <String, dynamic>{
         if (!isRecentWorks) 'q': kakuyomuQuery,
+
+        // キーワード検索結果を作品の更新順にします。
+        if (!isRecentWorks) 'order': 'last_episode_published_at',
+
         if (normalizedPage > 1) 'page': normalizedPage,
       },
       options: Options(responseType: ResponseType.plain),
@@ -420,6 +425,10 @@ class KakuyomuScraper {
   // 目次取得
   // ---------------------------------------------------------------------------
 
+  /// カクヨムの目次を取得します.
+  ///
+  /// アプリ用JSON APIを優先し、取得できなかった場合だけ
+  /// 作品ページHTMLの解析へ切り替えます。
   Future<List<Map<String, String>>> fetchEpisodeList(String workId) async {
     final normalizedWorkId = _normalizeWorkId(workId);
 
@@ -427,10 +436,257 @@ class KakuyomuScraper {
       throw ArgumentError('workIdが空です');
     }
 
-    final document = await _fetchWorkDocument(normalizedWorkId);
+    try {
+      final episodes = await _fetchEpisodeListFromApi(normalizedWorkId);
+
+      debugPrint(
+        'Kakuyomu API目次取得成功: '
+        'workId=$normalizedWorkId, episodes=${episodes.length}',
+      );
+
+      return episodes;
+    } catch (error, stackTrace) {
+      debugPrint(
+        'Kakuyomu API目次取得失敗: '
+        'workId=$normalizedWorkId, error=$error',
+      );
+      debugPrintStack(stackTrace: stackTrace);
+
+      final episodes = await _fetchEpisodeListFromHtml(normalizedWorkId);
+
+      debugPrint(
+        'Kakuyomu HTML目次取得: '
+        'workId=$normalizedWorkId, episodes=${episodes.length}',
+      );
+
+      return episodes;
+    }
+  }
+
+  /// カクヨムのアプリ用JSON APIから全エピソードを取得します。
+  Future<List<Map<String, String>>> _fetchEpisodeListFromApi(
+    String workId,
+  ) async {
+    final apiUrl = 'https://kakuyomu.jp/api/app/works/$workId';
+
+    final response = await _dio.get<dynamic>(
+      apiUrl,
+      options: Options(
+        responseType: ResponseType.json,
+        headers: const {'Accept': 'application/json'},
+      ),
+    );
+
+    final data = _toJsonMap(response.data);
+    final rawEpisodes = data['episodes'];
+
+    debugPrint(
+      'Kakuyomu API応答: '
+      'workId=$workId, '
+      'dataType=${response.data.runtimeType}, '
+      'episodesType=${rawEpisodes.runtimeType}, '
+      'episodesCount=${rawEpisodes is List ? rawEpisodes.length : 0}',
+    );
+
+    if (rawEpisodes is! List) {
+      throw StateError(
+        'カクヨムAPIのepisodesがListではありません。'
+        '実際の型: ${rawEpisodes.runtimeType}',
+      );
+    }
+
+    if (rawEpisodes.isEmpty) {
+      throw StateError('カクヨムAPIの目次が空でした');
+    }
+
+    final episodes = <Map<String, String>>[];
+    final usedEpisodeIds = <String>{};
+
+    for (final rawEpisode in rawEpisodes) {
+      final episodeData = _toEpisodeJsonMap(rawEpisode);
+
+      if (episodeData.isEmpty) {
+        continue;
+      }
+
+      final episodeId = _readEpisodeId(episodeData);
+
+      if (episodeId.isEmpty) {
+        debugPrint(
+          'KakuyomuエピソードIDなし: '
+          '${episodeData.keys.join(', ')}',
+        );
+        continue;
+      }
+
+      if (!usedEpisodeIds.add(episodeId)) {
+        continue;
+      }
+
+      var title = _cleanEpisodeTitle(episodeData['title']?.toString() ?? '');
+
+      final publicNumber = _parsePositiveInt(episodeData['public_number']);
+
+      final apiNumber = _parsePositiveInt(episodeData['number']);
+
+      final episodeNo = publicNumber ?? apiNumber ?? episodes.length + 1;
+
+      if (title.isEmpty) {
+        title = '第$episodeNo話';
+      }
+
+      final rawPermalink = episodeData['permalink']?.toString().trim() ?? '';
+
+      final episodeUrl = rawPermalink.isNotEmpty
+          ? rawPermalink
+          : 'https://kakuyomu.jp/works/'
+                '$workId/episodes/$episodeId';
+
+      final publishedAt = _formatApiTimestamp(episodeData['published_at']);
+
+      episodes.add(<String, String>{
+        'episodeNo': episodeNo.toString(),
+        'episodeId': episodeId,
+        'title': title,
+        'url': episodeUrl,
+        'update': publishedAt,
+        'publishedAt': publishedAt,
+      });
+    }
+
+    if (episodes.isEmpty) {
+      throw StateError(
+        'カクヨムAPIから各話を取得できませんでした。'
+        'API上の話数: ${rawEpisodes.length}',
+      );
+    }
+
+    // public_numberまたはnumberの順番に並べます。
+    episodes.sort((left, right) {
+      final leftNo = int.tryParse(left['episodeNo'] ?? '') ?? 0;
+      final rightNo = int.tryParse(right['episodeNo'] ?? '') ?? 0;
+
+      return leftNo.compareTo(rightNo);
+    });
+
+    // 欠番や重複番号があっても、アプリ内では1話目から連番にします。
+    final normalizedEpisodes = <Map<String, String>>[];
+    final normalizedEpisodeIdMap = <int, String>{};
+
+    for (var index = 0; index < episodes.length; index++) {
+      final episodeNo = index + 1;
+      final source = episodes[index];
+      final episodeId = source['episodeId'] ?? '';
+
+      if (episodeId.isEmpty) {
+        continue;
+      }
+
+      final normalizedEntry = <String, String>{
+        ...source,
+        'episodeNo': episodeNo.toString(),
+      };
+
+      normalizedEpisodes.add(normalizedEntry);
+    }
+
+    if (normalizedEpisodes.isEmpty) {
+      throw StateError('カクヨムAPIの目次を正規化できませんでした');
+    }
+
+    _episodeIdCache[workId] = normalizedEpisodeIdMap;
+
+    debugPrint(
+      'Kakuyomu API解析完了: '
+      'workId=$workId, '
+      'raw=${rawEpisodes.length}, '
+      'parsed=${normalizedEpisodes.length}, '
+      'first=${normalizedEpisodes.first['title']}, '
+      'last=${normalizedEpisodes.last['title']}',
+    );
+
+    return normalizedEpisodes;
+  }
+
+  /// APIの各エピソードをMapへ変換します。
+  Map<String, dynamic> _toEpisodeJsonMap(dynamic value) {
+    if (value is Map<String, dynamic>) {
+      return value;
+    }
+
+    if (value is Map) {
+      return Map<String, dynamic>.from(value);
+    }
+
+    return const <String, dynamic>{};
+  }
+
+  /// APIのエピソードIDを取得します。
+  ///
+  /// 通常はidを使用し、取得できない場合はpermalinkから取り出します。
+  String _readEpisodeId(Map<String, dynamic> episodeData) {
+    final rawId = episodeData['id']?.toString().trim() ?? '';
+
+    if (rawId.isNotEmpty && rawId != 'null') {
+      return rawId;
+    }
+
+    final permalink = episodeData['permalink']?.toString().trim() ?? '';
+
+    final match = RegExp(r'/episodes/([^/?#]+)').firstMatch(permalink);
+
+    return match?.group(1)?.trim() ?? '';
+  }
+
+  /// 正の整数を取得します。
+  int? _parsePositiveInt(dynamic value) {
+    final parsed = value is int ? value : int.tryParse(value?.toString() ?? '');
+
+    if (parsed == null || parsed <= 0) {
+      return null;
+    }
+
+    return parsed;
+  }
+
+  /// カクヨムAPIのUnix秒を画面用の日時へ変換します。
+  String _formatApiTimestamp(dynamic value) {
+    final seconds = value is int
+        ? value
+        : value is num
+        ? value.toInt()
+        : int.tryParse(value?.toString() ?? '');
+
+    if (seconds == null || seconds <= 0) {
+      return '';
+    }
+
+    try {
+      final dateTime = DateTime.fromMillisecondsSinceEpoch(
+        seconds * 1000,
+        isUtc: true,
+      ).toLocal();
+
+      final year = dateTime.year.toString().padLeft(4, '0');
+      final month = dateTime.month.toString().padLeft(2, '0');
+      final day = dateTime.day.toString().padLeft(2, '0');
+      final hour = dateTime.hour.toString().padLeft(2, '0');
+      final minute = dateTime.minute.toString().padLeft(2, '0');
+
+      return '$year/$month/$day $hour:$minute';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /// APIが利用できない場合のHTML目次取得です。
+  Future<List<Map<String, String>>> _fetchEpisodeListFromHtml(
+    String workId,
+  ) async {
+    final document = await _fetchWorkDocument(workId);
 
     final anchors = document.querySelectorAll(
-      'a[href^="/works/$normalizedWorkId/episodes/"]',
+      'a[href^="/works/$workId/episodes/"]',
     );
 
     if (anchors.isEmpty) {
@@ -446,7 +702,7 @@ class KakuyomuScraper {
 
       final match = RegExp(
         '^/works/'
-        '${RegExp.escape(normalizedWorkId)}'
+        '${RegExp.escape(workId)}'
         '/episodes/([^/?#]+)',
       ).firstMatch(href);
 
@@ -527,7 +783,7 @@ class KakuyomuScraper {
 
       final episodeUrl =
           'https://kakuyomu.jp/works/'
-          '$normalizedWorkId/episodes/$episodeId';
+          '$workId/episodes/$episodeId';
 
       episodes.add(<String, String>{
         'episodeNo': episodeNo.toString(),
@@ -545,7 +801,7 @@ class KakuyomuScraper {
       throw StateError('カクヨムの各話タイトルを取得できませんでした');
     }
 
-    _episodeIdCache[normalizedWorkId] = episodeIdMap;
+    _episodeIdCache[workId] = episodeIdMap;
 
     return episodes;
   }

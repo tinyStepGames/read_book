@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
+import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html_parser;
 
 import '../models/episode.dart';
@@ -288,106 +289,185 @@ class NarouApiClient {
 
     final workUrl = 'https://ncode.syosetu.com/$normalizedNcode/';
 
-    final response = await _dio.get<String>(
-      workUrl,
-      options: Options(responseType: ResponseType.plain),
-    );
+    // 話番号をキーにすることで、ページをまたいだ重複を防止します。
+    final episodesByNumber = <int, Map<String, String>>{};
 
-    final html = response.data ?? '';
+    // なろうの目次は通常100話単位でページ分割されます。
+    // 異常な無限巡回を防ぐため、最大1000ページまでに制限します。
+    const maxTableOfContentsPages = 1000;
 
-    if (html.isEmpty) {
-      throw StateError('作品ページのHTMLが空です');
+    Document? firstPageDocument;
+
+    var foundEpisodeList = false;
+
+    for (var page = 1; page <= maxTableOfContentsPages; page++) {
+      final pageUrl = page == 1 ? workUrl : '$workUrl?p=$page';
+
+      final response = await _dio.get<String>(
+        pageUrl,
+        options: Options(
+          responseType: ResponseType.plain,
+          validateStatus: (status) {
+            return status != null && status >= 200 && status < 500;
+          },
+        ),
+      );
+
+      // 存在しない目次ページへ到達した場合は終了します。
+      if (response.statusCode == 404) {
+        break;
+      }
+
+      final html = response.data ?? '';
+
+      if (html.isEmpty) {
+        if (page == 1) {
+          throw StateError('作品ページのHTMLが空です');
+        }
+
+        break;
+      }
+
+      final document = html_parser.parse(html);
+
+      if (page == 1) {
+        firstPageDocument = document;
+      }
+
+      // 現在のなろうで使われている各話の親要素です。
+      final episodeElements = document.querySelectorAll('.p-eplist__sublist');
+
+      var addedCount = 0;
+
+      if (episodeElements.isNotEmpty) {
+        foundEpisodeList = true;
+
+        for (var index = 0; index < episodeElements.length; index++) {
+          final episodeElement = episodeElements[index];
+
+          final titleElement = episodeElement.querySelector(
+            'a.p-eplist__subtitle',
+          );
+
+          if (titleElement == null) {
+            continue;
+          }
+
+          final href = titleElement.attributes['href']?.trim() ?? '';
+
+          final title = _cleanText(titleElement.text);
+
+          if (href.isEmpty || title.isEmpty) {
+            continue;
+          }
+
+          final fallbackEpisodeNo = ((page - 1) * 100) + index + 1;
+
+          final episodeNo = _episodeNoFromHref(
+            href: href,
+            fallback: fallbackEpisodeNo,
+          );
+
+          final fullUrl = Uri.parse(workUrl).resolve(href).toString();
+
+          final updateElement = episodeElement.querySelector(
+            '.p-eplist__update',
+          );
+
+          final publishedAt = _cleanPublishedDate(updateElement?.text ?? '');
+
+          // 同じ話番号がすでに登録済みなら重複追加しません。
+          if (episodesByNumber.containsKey(episodeNo)) {
+            continue;
+          }
+
+          episodesByNumber[episodeNo] = <String, String>{
+            'episodeNo': episodeNo.toString(),
+            'title': title,
+            'url': fullUrl,
+            'update': publishedAt,
+            'publishedAt': publishedAt,
+          };
+
+          addedCount++;
+        }
+      } else {
+        // 古いHTML構造などへの予備対応です。
+        final titleAnchors = document.querySelectorAll('a.p-eplist__subtitle');
+
+        if (titleAnchors.isNotEmpty) {
+          foundEpisodeList = true;
+
+          for (var index = 0; index < titleAnchors.length; index++) {
+            final titleElement = titleAnchors[index];
+
+            final href = titleElement.attributes['href']?.trim() ?? '';
+
+            final title = _cleanText(titleElement.text);
+
+            if (href.isEmpty || title.isEmpty) {
+              continue;
+            }
+
+            final fallbackEpisodeNo = ((page - 1) * 100) + index + 1;
+
+            final episodeNo = _episodeNoFromHref(
+              href: href,
+              fallback: fallbackEpisodeNo,
+            );
+
+            final fullUrl = Uri.parse(workUrl).resolve(href).toString();
+
+            final updateElement = titleElement.parent?.querySelector(
+              '.p-eplist__update',
+            );
+
+            final publishedAt = _cleanPublishedDate(updateElement?.text ?? '');
+
+            if (episodesByNumber.containsKey(episodeNo)) {
+              continue;
+            }
+
+            episodesByNumber[episodeNo] = <String, String>{
+              'episodeNo': episodeNo.toString(),
+              'title': title,
+              'url': fullUrl,
+              'update': publishedAt,
+              'publishedAt': publishedAt,
+            };
+
+            addedCount++;
+          }
+        }
+      }
+
+      // 目次を取得済みなのに、新しく追加できる話がない場合は、
+      // 最後のページを超えたか同じページへ戻されたと判断します。
+      if (foundEpisodeList && addedCount == 0) {
+        break;
+      }
+
+      // 次の目次ページへのリンクがなければ終了します。
+      if (!_hasNextEpisodeListPage(document: document, currentPage: page)) {
+        break;
+      }
     }
 
-    final document = html_parser.parse(html);
+    if (episodesByNumber.isNotEmpty) {
+      final episodeNumbers = episodesByNumber.keys.toList()..sort();
 
-    // 現在のなろうで使われている各話の親要素
-    final episodeElements = document.querySelectorAll('.p-eplist__sublist');
-
-    if (episodeElements.isNotEmpty) {
-      final episodes = <Map<String, String>>[];
-
-      for (var index = 0; index < episodeElements.length; index++) {
-        final episodeElement = episodeElements[index];
-
-        final titleElement = episodeElement.querySelector(
-          'a.p-eplist__subtitle',
-        );
-
-        if (titleElement == null) {
-          continue;
-        }
-
-        final href = titleElement.attributes['href']?.trim() ?? '';
-        final title = _cleanText(titleElement.text);
-
-        if (href.isEmpty || title.isEmpty) {
-          continue;
-        }
-
-        final episodeNo = _episodeNoFromHref(href: href, fallback: index + 1);
-
-        final fullUrl = Uri.parse(workUrl).resolve(href).toString();
-
-        final updateElement = episodeElement.querySelector('.p-eplist__update');
-
-        final publishedAt = _cleanPublishedDate(updateElement?.text ?? '');
-
-        episodes.add(<String, String>{
-          'episodeNo': episodeNo.toString(),
-          'title': title,
-          'url': fullUrl,
-          'update': publishedAt,
-          'publishedAt': publishedAt,
-        });
-      }
-
-      if (episodes.isNotEmpty) {
-        return episodes;
-      }
-    }
-
-    // 古いHTML構造などへの予備対応
-    final titleAnchors = document.querySelectorAll('a.p-eplist__subtitle');
-
-    if (titleAnchors.isNotEmpty) {
-      final episodes = <Map<String, String>>[];
-
-      for (var index = 0; index < titleAnchors.length; index++) {
-        final titleElement = titleAnchors[index];
-
-        final href = titleElement.attributes['href']?.trim() ?? '';
-        final title = _cleanText(titleElement.text);
-
-        if (href.isEmpty || title.isEmpty) {
-          continue;
-        }
-
-        final episodeNo = _episodeNoFromHref(href: href, fallback: index + 1);
-
-        final fullUrl = Uri.parse(workUrl).resolve(href).toString();
-
-        final updateElement = titleElement.parent?.querySelector(
-          '.p-eplist__update',
-        );
-
-        final publishedAt = _cleanPublishedDate(updateElement?.text ?? '');
-
-        episodes.add(<String, String>{
-          'episodeNo': episodeNo.toString(),
-          'title': title,
-          'url': fullUrl,
-          'update': publishedAt,
-          'publishedAt': publishedAt,
-        });
-      }
-
-      if (episodes.isNotEmpty) {
-        return episodes;
-      }
+      return episodeNumbers
+          .map((episodeNo) => episodesByNumber[episodeNo]!)
+          .toList();
     }
 
     // 目次がない作品は短編として扱います。
+    final document = firstPageDocument;
+
+    if (document == null) {
+      throw StateError('作品ページを取得できませんでした');
+    }
+
     final wwwcElement = document.querySelector('meta[name="WWWC"]');
 
     final publishedAt = _cleanPublishedDate(
@@ -482,6 +562,38 @@ class NarouApiClient {
   // ---------------------------------------------------------------------------
   // 補助メソッド
   // ---------------------------------------------------------------------------
+  /// 現在の目次ページに、次ページへのリンクがあるか確認します。
+  bool _hasNextEpisodeListPage({
+    required Document document,
+    required int currentPage,
+  }) {
+    final expectedNextPage = currentPage + 1;
+
+    final links = document.querySelectorAll('a[href]');
+
+    for (final link in links) {
+      final href = link.attributes['href']?.trim() ?? '';
+
+      if (href.isEmpty) {
+        continue;
+      }
+
+      final resolvedUri = Uri.tryParse(href);
+
+      if (resolvedUri == null) {
+        continue;
+      }
+
+      final pageValue = resolvedUri.queryParameters['p'];
+      final page = int.tryParse(pageValue ?? '');
+
+      if (page == expectedNextPage) {
+        return true;
+      }
+    }
+
+    return false;
+  }
 
   /// URLから話番号を取得します。
   int _episodeNoFromHref({required String href, required int fallback}) {
