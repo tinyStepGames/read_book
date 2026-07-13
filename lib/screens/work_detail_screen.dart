@@ -25,7 +25,11 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
   static const int _episodesPerPage = 100;
 
   List<Map<String, String>> _episodes = [];
+
   bool _isLoading = true;
+
+  /// 作品情報・あらすじを表示しているかどうかです。
+  bool _showWorkInformation = true;
 
   /// 現在表示している目次ページです。
   int _currentEpisodePage = 1;
@@ -36,9 +40,64 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
   /// あらすじとスクロールバーで共用するControllerです。
   final ScrollController _summaryScrollController = ScrollController();
 
+  @override
+  void initState() {
+    super.initState();
+
+    _episodeScrollController.addListener(_handleEpisodeScroll);
+
+    _loadEpisodes();
+  }
+
+  @override
+  void dispose() {
+    _episodeScrollController.removeListener(_handleEpisodeScroll);
+
+    _summaryScrollController.dispose();
+    _episodeScrollController.dispose();
+
+    super.dispose();
+  }
+
+  /// 目次を下へスクロールしたときに、
+  /// 作品情報とあらすじを自動的に閉じます。
+  void _handleEpisodeScroll() {
+    if (!_episodeScrollController.hasClients) {
+      return;
+    }
+
+    if (!_showWorkInformation) {
+      return;
+    }
+
+    if (_episodeScrollController.offset > 8) {
+      setState(() {
+        _showWorkInformation = false;
+      });
+    }
+  }
+
+  /// AppBarのボタンから作品情報の表示を切り替えます。
+  void _toggleWorkInformation() {
+    setState(() {
+      _showWorkInformation = !_showWorkInformation;
+    });
+
+    if (_showWorkInformation) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!_episodeScrollController.hasClients) {
+          return;
+        }
+
+        _episodeScrollController.jumpTo(0);
+      });
+    }
+  }
+
   /// エピソードの掲載日を画面表示用に整形します。
   ///
-  /// なろう・カクヨムで使用される可能性のある複数のキーに対応します。
+  /// なろう・カクヨムで使用される可能性のある
+  /// 複数のキーに対応します。
   String _formatPublishedDate(Map<String, String> entry) {
     final raw =
         (entry['publishedAt'] ??
@@ -48,7 +107,9 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
                 '')
             .trim();
 
-    if (raw.isEmpty) return '';
+    if (raw.isEmpty) {
+      return '';
+    }
 
     // 2026/07/11、2026-07-11、2026/07/11 12:00に対応
     final numericMatch = RegExp(
@@ -92,19 +153,6 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
         .trim();
   }
 
-  @override
-  void initState() {
-    super.initState();
-    _loadEpisodes();
-  }
-
-  @override
-  void dispose() {
-    _summaryScrollController.dispose();
-    _episodeScrollController.dispose();
-    super.dispose();
-  }
-
   /// 目次の総ページ数です。
   int get _totalEpisodePages {
     if (_episodes.isEmpty) {
@@ -123,6 +171,7 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
     final normalizedPage = _currentEpisodePage.clamp(1, _totalEpisodePages);
 
     final startIndex = (normalizedPage - 1) * _episodesPerPage;
+
     final endIndex = (startIndex + _episodesPerPage).clamp(0, _episodes.length);
 
     return _episodes.sublist(startIndex, endIndex);
@@ -154,6 +203,7 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
   Widget _buildEpisodePaginationBar(BuildContext context) {
     final theme = Theme.of(context);
     final totalPages = _totalEpisodePages;
+
     final currentPage = _currentEpisodePage.clamp(1, totalPages);
 
     final startEpisode = _episodes.isEmpty
@@ -175,7 +225,8 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                '$startEpisode～$endEpisode話 / 全${_episodes.length}話',
+                '$startEpisode～$endEpisode話 / '
+                '全${_episodes.length}話',
                 style: theme.textTheme.bodySmall,
               ),
               const SizedBox(height: 6),
@@ -189,14 +240,19 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
                             }
                           : null,
                       icon: const Icon(Icons.chevron_left, size: 20),
-                      label: const Text('前へ'),
+                      label: const FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text('前へ', maxLines: 1),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: DropdownButtonFormField<int>(
+                      key: ValueKey<int>(currentPage),
                       initialValue: currentPage,
                       isExpanded: true,
+                      menuMaxHeight: 360,
                       decoration: const InputDecoration(
                         isDense: true,
                         contentPadding: EdgeInsets.symmetric(
@@ -214,18 +270,21 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
                           value: page,
                           child: Text(
                             '$pageページ',
+                            maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
                         );
                       }),
-
                       selectedItemBuilder: (context) {
                         return List<Widget>.generate(totalPages, (index) {
                           return Align(
                             alignment: Alignment.centerLeft,
-                            child: Text(
-                              '${index + 1} / $totalPages',
-                              overflow: TextOverflow.ellipsis,
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                '${index + 1} / $totalPages',
+                                maxLines: 1,
+                              ),
                             ),
                           );
                         });
@@ -251,7 +310,10 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Flexible(
-                            child: Text('次へ', overflow: TextOverflow.ellipsis),
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text('次へ', maxLines: 1),
+                            ),
                           ),
                           Icon(Icons.chevron_right, size: 20),
                         ],
@@ -290,7 +352,9 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
         episodeList: episodes,
       );
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         _episodes = episodes;
@@ -301,12 +365,14 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
 
         _currentEpisodePage = _currentEpisodePage.clamp(1, totalPages);
       });
-    } catch (e) {
-      if (!mounted) return;
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
 
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('目次の取得に失敗しました: $e')));
+      ).showSnackBar(SnackBar(content: Text('目次の取得に失敗しました: $error')));
     } finally {
       if (mounted) {
         setState(() {
@@ -360,14 +426,18 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
       },
     );
 
-    if (confirmed != true) return;
+    if (confirmed != true) {
+      return;
+    }
 
     await DownloadManager.instance.enqueueBulk(
       work: widget.work,
       episodeList: _episodes,
     );
 
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -391,7 +461,9 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
       publishedAt: publishedAt,
     );
 
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
 
     setState(() {});
   }
@@ -409,7 +481,9 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
     );
 
     // 本文から目次へ戻ったときに既読表示などを更新します。
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
 
     setState(() {});
   }
@@ -437,39 +511,33 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
 
     _openReader(nextEpisodeNo, title);
   }
-/// 作品タイトルが省略されないように、必要なAppBarの高さを計算します。
-double _calculateAppBarHeight(BuildContext context) {
-  final mediaQuery = MediaQuery.of(context);
-  final screenWidth = mediaQuery.size.width;
 
-  // 戻るボタン、右側のダウンロードボタン、左右の余白を除いた幅です。
-  final calculatedWidth = screenWidth - 56 - 56 - 32;
+  /// 作品タイトルが省略されないように、
+  /// 必要なAppBarの高さを計算します。
+  double _calculateAppBarHeight(BuildContext context) {
+    final mediaQuery = MediaQuery.of(context);
+    final screenWidth = mediaQuery.size.width;
 
-  final availableTitleWidth = calculatedWidth < 100
-      ? 100.0
-      : calculatedWidth;
+    // 戻るボタン、右側のボタン、左右の余白を除いた幅です。
+    final calculatedWidth = screenWidth - 56 - 112 - 32;
 
-  final titleStyle =
-      Theme.of(context).appBarTheme.titleTextStyle ??
-      Theme.of(context).textTheme.titleLarge ??
-      const TextStyle(fontSize: 20);
+    final availableTitleWidth = calculatedWidth < 100 ? 100.0 : calculatedWidth;
 
-  final textPainter = TextPainter(
-    text: TextSpan(
-      text: widget.work.title,
-      style: titleStyle,
-    ),
-    textDirection: Directionality.of(context),
-    textScaler: mediaQuery.textScaler,
-  )..layout(maxWidth: availableTitleWidth);
+    final titleStyle =
+        Theme.of(context).appBarTheme.titleTextStyle ??
+        Theme.of(context).textTheme.titleLarge ??
+        const TextStyle(fontSize: 20);
 
-  // タイトルの上下に余白を付けます。
-  final requiredHeight = textPainter.height + 24;
+    final textPainter = TextPainter(
+      text: TextSpan(text: widget.work.title, style: titleStyle),
+      textDirection: Directionality.of(context),
+      textScaler: mediaQuery.textScaler,
+    )..layout(maxWidth: availableTitleWidth);
 
-  return requiredHeight < kToolbarHeight
-      ? kToolbarHeight
-      : requiredHeight;
-}
+    final requiredHeight = textPainter.height + 24;
+
+    return requiredHeight < kToolbarHeight ? kToolbarHeight : requiredHeight;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -477,23 +545,38 @@ double _calculateAppBarHeight(BuildContext context) {
     final theme = Theme.of(context);
 
     return Scaffold(
-  appBar: AppBar(
-    toolbarHeight: _calculateAppBarHeight(context),
-    title: Text(
-      work.title,
-      softWrap: true,
-      maxLines: null,
-      overflow: TextOverflow.visible,
-    ),
-    actions: [
-      IconButton(
-        icon: const Icon(Icons.download),
-        tooltip: '全話ダウンロード',
-        onPressed: _isLoading ? null : _confirmAndBulkDownload,
-      ),
-    ],
-  ),
+      appBar: AppBar(
+        // 作品情報表示中は、タイトル全文に必要な高さにします。
+        // 閉じているときは通常のAppBarの高さにします。
+        toolbarHeight: _showWorkInformation
+            ? _calculateAppBarHeight(context)
+            : kToolbarHeight,
+        title: Text(
+          work.title,
+          softWrap: true,
+          maxLines: _showWorkInformation ? 1000 : 1,
+          overflow: _showWorkInformation
+              ? TextOverflow.visible
+              : TextOverflow.ellipsis,
+        ),
+        actions: [
+          // 作品情報・あらすじの表示切り替え
+          IconButton(
+            icon: Icon(
+              _showWorkInformation ? Icons.unfold_less : Icons.unfold_more,
+            ),
+            tooltip: _showWorkInformation ? '作品情報を閉じる' : '作品情報を表示',
+            onPressed: _toggleWorkInformation,
+          ),
 
+          // 全話ダウンロード
+          IconButton(
+            icon: const Icon(Icons.download),
+            tooltip: '全話ダウンロード',
+            onPressed: _isLoading ? null : _confirmAndBulkDownload,
+          ),
+        ],
+      ),
       body: StreamBuilder<dynamic>(
         stream: DownloadManager.instance.progressStream,
         builder: (context, snapshot) {
@@ -521,118 +604,138 @@ double _calculateAppBarHeight(BuildContext context) {
                 ),
 
               // 作品情報
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: work.isCompleted ? Colors.grey : Colors.teal,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            work.isCompleted ? '完結' : '連載中',
-                            style: const TextStyle(
-                              fontSize: 10,
-                              color: Colors.white,
+              if (_showWorkInformation)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
                             ),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          '全${work.totalEpisodeCount}話',
-                          style: theme.textTheme.bodySmall,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      '作:${work.author}　ジャンル:${work.genre}',
-                      style: theme.textTheme.bodySmall,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '最終更新:${work.lastUpdatedAt}',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: Colors.grey,
-                      ),
-                    ),
-
-                    // あらすじ
-                    if (work.summary.trim().isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Container(
-                        constraints: const BoxConstraints(maxHeight: 220),
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.surfaceContainerHighest
-                              .withValues(alpha: 0.35),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Scrollbar(
-                          controller: _summaryScrollController,
-                          thumbVisibility: false,
-                          trackVisibility: false,
-                          interactive: true,
-                          thickness: 6,
-                          radius: const Radius.circular(8),
-                          scrollbarOrientation: ScrollbarOrientation.right,
-                          child: SingleChildScrollView(
-                            controller: _summaryScrollController,
-                            primary: false,
-                            padding: const EdgeInsets.only(right: 10),
+                            decoration: BoxDecoration(
+                              color: work.isCompleted
+                                  ? Colors.grey
+                                  : Colors.teal,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
                             child: Text(
-                              work.summary.trim(),
-                              style: const TextStyle(fontSize: 13, height: 1.6),
+                              work.isCompleted ? '完結' : '連載中',
+                              style: const TextStyle(
+                                fontSize: 10,
+                                color: Colors.white,
+                              ),
                             ),
                           ),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              '全${work.totalEpisodeCount}話',
+                              softWrap: true,
+                              style: theme.textTheme.bodySmall,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '作:${work.author}　'
+                        'ジャンル:${work.genre}',
+                        softWrap: true,
+                        maxLines: 1000,
+                        overflow: TextOverflow.visible,
+                        style: theme.textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '最終更新:${work.lastUpdatedAt}',
+                        softWrap: true,
+                        maxLines: 1000,
+                        overflow: TextOverflow.visible,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: Colors.grey,
                         ),
                       ),
-                    ],
 
-                    // タグ
-                    if (work.tags.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 4,
-                        children: work.tags
-                            .where((tag) => tag.trim().isNotEmpty)
-                            .map(
-                              (tag) => Text(
-                                tag,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.grey[500],
+                      // あらすじ
+                      if (work.summary.trim().isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Container(
+                          constraints: const BoxConstraints(maxHeight: 220),
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.surfaceContainerHighest
+                                .withValues(alpha: 0.35),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Scrollbar(
+                            controller: _summaryScrollController,
+                            thumbVisibility: false,
+                            trackVisibility: false,
+                            interactive: true,
+                            thickness: 6,
+                            radius: const Radius.circular(8),
+                            scrollbarOrientation: ScrollbarOrientation.right,
+                            child: SingleChildScrollView(
+                              controller: _summaryScrollController,
+                              primary: false,
+                              padding: const EdgeInsets.only(right: 10),
+                              child: Text(
+                                work.summary.trim(),
+                                softWrap: true,
+                                maxLines: 10000,
+                                overflow: TextOverflow.visible,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  height: 1.6,
                                 ),
                               ),
-                            )
-                            .toList(),
+                            ),
+                          ),
+                        ),
+                      ],
+
+                      // タグ
+                      if (work.tags.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 4,
+                          children: work.tags
+                              .where((tag) => tag.trim().isNotEmpty)
+                              .map(
+                                (tag) => Text(
+                                  tag,
+                                  softWrap: true,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey[500],
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                        ),
+                      ],
+
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: FilledButton.icon(
+                          onPressed: _isLoading ? null : _continueReading,
+                          icon: const Icon(Icons.play_arrow),
+                          label: const Text('続きから読む'),
+                        ),
                       ),
                     ],
-
-                    const SizedBox(height: 8),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: FilledButton.icon(
-                        onPressed: _isLoading ? null : _continueReading,
-                        icon: const Icon(Icons.play_arrow),
-                        label: const Text('続きから読む'),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
-              ),
 
-              const Divider(height: 1),
+              if (_showWorkInformation) const Divider(height: 1),
 
               // 目次
               Expanded(
@@ -750,24 +853,28 @@ double _calculateAppBarHeight(BuildContext context) {
                                                   CrossAxisAlignment.start,
                                               children: [
                                                 Text(
-  title,
-  softWrap: true,
-  maxLines: null,
-  overflow: TextOverflow.visible,
-  style: TextStyle(
-    fontSize: 14,
-    color: isRead ? Colors.grey : null,
-  ),
-),
-
+                                                  title,
+                                                  softWrap: true,
+                                                  maxLines: 1000,
+                                                  overflow:
+                                                      TextOverflow.visible,
+                                                  style: TextStyle(
+                                                    fontSize: 14,
+                                                    height: 1.4,
+                                                    color: isRead
+                                                        ? Colors.grey
+                                                        : null,
+                                                  ),
+                                                ),
                                                 if (publishedDate
                                                     .isNotEmpty) ...[
                                                   const SizedBox(height: 4),
                                                   Text(
                                                     '掲載日：$publishedDate',
-                                                    maxLines: 1,
+                                                    softWrap: true,
+                                                    maxLines: 1000,
                                                     overflow:
-                                                        TextOverflow.ellipsis,
+                                                        TextOverflow.visible,
                                                     style: TextStyle(
                                                       fontSize: 11,
                                                       color: isRead
