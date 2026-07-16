@@ -588,6 +588,7 @@ class KakuyomuScraper {
       };
 
       normalizedEpisodes.add(normalizedEntry);
+      normalizedEpisodeIdMap[episodeNo] = episodeId;
     }
 
     if (normalizedEpisodes.isEmpty) {
