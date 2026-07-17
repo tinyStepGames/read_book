@@ -151,17 +151,45 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 
   Future<void> _loadEpisodeList() async {
+    // 最初に端末内のダウンロード済み一覧を読み込みます。
+    // これにより、オフラインでも通信のタイムアウトを待たずに
+    // 前話・次話ボタンを使用できます。
+    final downloadedEpisodes = widget.repository.getDownloadedEpisodeList(
+      widget.work.workId,
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _episodeList = downloadedEpisodes;
+      _isLoadingList = false;
+    });
+
+    // その後、オンライン目次の取得を試します。
+    // 取得できた場合は、完全な目次へ更新します。
     try {
-      final list = await widget.repository.fetchEpisodeList(widget.work);
+      final onlineEpisodes = await widget.repository.fetchEpisodeList(
+        widget.work,
+      );
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
-      setState(() {
-        _episodeList = list;
-        _isLoadingList = false;
-      });
+      if (onlineEpisodes.isNotEmpty) {
+        setState(() {
+          _episodeList = onlineEpisodes;
+          _isLoadingList = false;
+        });
+      }
     } catch (_) {
-      if (!mounted) return;
+      // オフラインまたは通信失敗時は、
+      // 最初に読み込んだダウンロード済み一覧をそのまま使用します。
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         _isLoadingList = false;

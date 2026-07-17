@@ -50,6 +50,10 @@ class NovelRepository {
     await saveWork(work);
   }
 
+  /// 指定作品のダウンロード済みエピソード一覧を返します。
+  ///
+  /// オフライン時のReader画面で、前話・次話の移動判定に使用します。
+
   // キャッシュの最大保持件数。超えたら古いものから自動削除する。
   static const int _maxCacheSize = 1000;
 
@@ -304,6 +308,28 @@ class NovelRepository {
 
   bool hasAnyDownload(String workId) =>
       _downloadBox.values.any((d) => d.workId == workId);
+
+  /// 指定作品のダウンロード済みエピソード一覧を返します。
+  ///
+  /// オフライン時のReader画面で、前話・次話の移動判定に使用します。
+  List<Map<String, String>> getDownloadedEpisodeList(String workId) {
+    final downloads =
+        _downloadBox.values
+            .where((download) => download.workId == workId)
+            .toList()
+          ..sort((a, b) => a.episodeNo.compareTo(b.episodeNo));
+
+    return downloads
+        .map(
+          (download) => <String, String>{
+            'episodeNo': download.episodeNo.toString(),
+            'title': download.episodeTitle,
+            'episodeTitle': download.episodeTitle,
+            'publishedAt': download.publishedAt,
+          },
+        )
+        .toList();
+  }
 
   // ---------- 目次取得 ----------
 
