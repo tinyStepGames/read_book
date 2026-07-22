@@ -7,7 +7,9 @@ import 'package:html/parser.dart' as html_parser;
 
 import '../models/episode.dart';
 import '../models/site.dart';
+import '../utils/novel_body_codec.dart';
 import '../utils/search_query_parser.dart';
+
 import 'narou_api_client.dart';
 
 /// カクヨム作品ページから取得した詳細情報
@@ -881,19 +883,11 @@ class KakuyomuScraper {
       throw StateError('カクヨムの本文要素を取得できませんでした');
     }
 
-    final paragraphs = bodyElement.querySelectorAll('p');
-
-    final body = paragraphs.isNotEmpty
-        ? paragraphs
-              .map(_textWithLineBreaks)
-              .where((text) => text.isNotEmpty)
-              .join('\n\n')
-              .trim()
-        : _textWithLineBreaks(bodyElement);
-
-    if (body.isEmpty) {
+    if (bodyElement.text.trim().isEmpty) {
       throw StateError('カクヨムの本文が空でした');
     }
+
+    final body = NovelBodyCodec.encodeElement(bodyElement);
 
     return Episode(
       workId: normalizedWorkId,

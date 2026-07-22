@@ -6,6 +6,7 @@ import 'package:html/parser.dart' as html_parser;
 
 import '../models/episode.dart';
 import '../models/site.dart';
+import '../utils/novel_body_codec.dart';
 import '../utils/search_query_parser.dart';
 
 /// なろう小説APIおよび作品ページのスクレイピングを行うクライアント
@@ -544,11 +545,11 @@ class NarouApiClient {
       throw StateError('本文要素を取得できませんでした');
     }
 
-    final body = bodyElement.text.trim();
-
-    if (body.isEmpty) {
+    if (bodyElement.text.trim().isEmpty) {
       throw StateError('本文が空です');
     }
+
+    final body = NovelBodyCodec.encodeElement(bodyElement);
 
     return Episode(
       workId: normalizedWorkId,

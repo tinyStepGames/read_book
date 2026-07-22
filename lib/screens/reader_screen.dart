@@ -6,6 +6,7 @@ import '../models/history_entry.dart';
 import '../models/site.dart';
 import '../models/work.dart';
 import '../services/novel_repository.dart';
+import '../widgets/decorated_novel_text.dart';
 
 class ReaderScreen extends StatefulWidget {
   final NovelRepository repository;
@@ -542,14 +543,11 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
               const Divider(height: 1),
 
+              // 先頭行のルビが画面上端で切れないように余白を確保します。
+              SizedBox(height: _fontSize * 0.65),
+
               // 本文
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Text(
-                  _body,
-                  style: TextStyle(fontSize: _fontSize, height: 1.6),
-                ),
-              ),
+              DecoratedNovelText(body: _body, fontSize: _fontSize),
 
               const SizedBox(height: 16),
 
