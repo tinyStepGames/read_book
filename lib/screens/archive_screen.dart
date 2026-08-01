@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:html/parser.dart' as html_parser;
 
 import '../models/download.dart';
 import '../models/site.dart';
@@ -10,6 +11,7 @@ import '../services/search_request_controller.dart';
 import '../utils/no_animation_route.dart';
 import 'reader_screen.dart';
 import '../services/backup_service.dart';
+import '../services/download_manager.dart';
 
 /// 書庫のトップ画面
 ///
@@ -801,10 +803,15 @@ class SiteArchiveScreen extends StatelessWidget {
                                 ),
                               ],
                             ),
-                            if (work.summary.trim().isNotEmpty) ...[
+                            if ((html_parser.parseFragment(work.summary).text ??
+                                    '')
+                                .trim()
+                                .isNotEmpty) ...[
                               const SizedBox(height: 7),
                               Text(
-                                work.summary.trim(),
+                                (html_parser.parseFragment(work.summary).text ??
+                                        '')
+                                    .trim(),
                                 maxLines: 3,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
@@ -887,7 +894,7 @@ enum _ArchiveMenuAction { createBackup, restoreBackup }
 enum _WorkMenuAction { searchByTitle, searchByTag, deleteDownloads }
 
 /// ダウンロード済み作品の各話一覧画面
-class DownloadedWorkScreen extends StatelessWidget {
+class DownloadedWorkScreen extends StatefulWidget {
   final NovelRepository repository;
   final Work work;
 
@@ -897,6 +904,70 @@ class DownloadedWorkScreen extends StatelessWidget {
     required this.work,
   });
 
+  @override
+  State<DownloadedWorkScreen> createState() => _DownloadedWorkScreenState();
+}
+
+class _DownloadedWorkScreenState extends State<DownloadedWorkScreen> {
+  static const int _episodesPerPage = 100;
+
+  int _currentEpisodePage = 1;
+
+  bool _isFetchingEpisodeList = false;
+
+  int? _onlineEpisodeCount;
+
+  final ScrollController _episodeScrollController = ScrollController();
+
+  NovelRepository get repository => widget.repository;
+
+  Work get work => widget.work;
+
+  @override
+  void initState() {
+    super.initState();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _refreshOnlineEpisodeCount();
+    });
+  }
+
+  Future<void> _refreshOnlineEpisodeCount() async {
+    if (_isFetchingEpisodeList) {
+      return;
+    }
+
+    setState(() {
+      _isFetchingEpisodeList = true;
+    });
+
+    try {
+      final episodeList = await repository.fetchEpisodeList(work);
+
+      if (!mounted || episodeList.isEmpty) {
+        return;
+      }
+
+      setState(() {
+        _onlineEpisodeCount = episodeList.length;
+      });
+    } catch (_) {
+      // Offline: continue using the saved episode count.
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isFetchingEpisodeList = false;
+        });
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _episodeScrollController.dispose();
+    super.dispose();
+  }
+
   List<Download> _downloads(Box<Download> box) {
     final downloads = box.values
         .where((download) => download.workId == work.workId)
@@ -905,6 +976,191 @@ class DownloadedWorkScreen extends StatelessWidget {
     downloads.sort((a, b) => a.episodeNo.compareTo(b.episodeNo));
 
     return downloads;
+  }
+
+  int _totalEpisodePages(List<Download> downloads) {
+    if (downloads.isEmpty) {
+      return 1;
+    }
+
+    return (downloads.length / _episodesPerPage).ceil();
+  }
+
+  List<Download> _visibleDownloads(List<Download> downloads) {
+    if (downloads.isEmpty) {
+      return const <Download>[];
+    }
+
+    final totalPages = _totalEpisodePages(downloads);
+    final currentPage = _currentEpisodePage.clamp(1, totalPages);
+
+    final startIndex = (currentPage - 1) * _episodesPerPage;
+    final endIndex = (startIndex + _episodesPerPage).clamp(0, downloads.length);
+
+    return downloads.sublist(startIndex, endIndex);
+  }
+
+  void _changeEpisodePage(int page, int totalPages) {
+    final normalizedPage = page.clamp(1, totalPages);
+
+    if (normalizedPage == _currentEpisodePage) {
+      return;
+    }
+
+    setState(() {
+      _currentEpisodePage = normalizedPage;
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_episodeScrollController.hasClients) {
+        return;
+      }
+
+      _episodeScrollController.jumpTo(0);
+    });
+  }
+
+  Widget _buildEpisodePaginationBar(
+    BuildContext context,
+    List<Download> downloads,
+  ) {
+    final theme = Theme.of(context);
+    final totalPages = _totalEpisodePages(downloads);
+    final currentPage = _currentEpisodePage.clamp(1, totalPages);
+
+    final startIndex = (currentPage - 1) * _episodesPerPage;
+    final endIndex = (startIndex + _episodesPerPage).clamp(0, downloads.length);
+
+    final visibleDownloads = downloads.sublist(startIndex, endIndex);
+
+    final rangeLabel = visibleDownloads.isEmpty
+        ? 'ダウンロード済み 0話'
+        : '第${visibleDownloads.first.episodeNo}話'
+              '～第${visibleDownloads.last.episodeNo}話'
+              ' / ダウンロード済み${downloads.length}話';
+
+    return Material(
+      color: theme.colorScheme.surface,
+      child: SafeArea(
+        top: false,
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(rangeLabel, style: theme.textTheme.bodySmall),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: currentPage > 1
+                          ? () {
+                              _changeEpisodePage(currentPage - 1, totalPages);
+                            }
+                          : null,
+                      icon: const Icon(Icons.chevron_left, size: 20),
+                      label: const FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text('前へ', maxLines: 1),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: DropdownButtonFormField<int>(
+                      key: ValueKey<int>(currentPage),
+                      initialValue: currentPage,
+                      isExpanded: true,
+                      menuMaxHeight: 360,
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 10,
+                        ),
+                        border: OutlineInputBorder(),
+                      ),
+                      items: List<DropdownMenuItem<int>>.generate(totalPages, (
+                        index,
+                      ) {
+                        final page = index + 1;
+                        final pageStartIndex = index * _episodesPerPage;
+                        final pageEndIndex = (pageStartIndex + _episodesPerPage)
+                            .clamp(0, downloads.length);
+
+                        final pageDownloads = downloads.sublist(
+                          pageStartIndex,
+                          pageEndIndex,
+                        );
+
+                        final label = pageDownloads.isEmpty
+                            ? '$pageページ'
+                            : '${pageDownloads.first.episodeNo}'
+                                  '～${pageDownloads.last.episodeNo}話';
+
+                        return DropdownMenuItem<int>(
+                          value: page,
+                          child: Text(
+                            label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        );
+                      }),
+                      selectedItemBuilder: (context) {
+                        return List<Widget>.generate(totalPages, (index) {
+                          return Align(
+                            alignment: Alignment.centerLeft,
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                '${index + 1} / $totalPages',
+                                maxLines: 1,
+                              ),
+                            ),
+                          );
+                        });
+                      },
+                      onChanged: totalPages > 1
+                          ? (page) {
+                              if (page != null) {
+                                _changeEpisodePage(page, totalPages);
+                              }
+                            }
+                          : null,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: currentPage < totalPages
+                          ? () {
+                              _changeEpisodePage(currentPage + 1, totalPages);
+                            }
+                          : null,
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Flexible(
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text('次へ', maxLines: 1),
+                            ),
+                          ),
+                          Icon(Icons.chevron_right, size: 20),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   String _formatPublishedDate(String value) {
@@ -995,7 +1251,6 @@ class DownloadedWorkScreen extends StatelessWidget {
         );
       },
     );
-
     if (confirmed != true) return;
 
     final box = Hive.box<Download>('downloads');
@@ -1018,6 +1273,135 @@ class DownloadedWorkScreen extends StatelessWidget {
     ).showSnackBar(const SnackBar(content: Text('ダウンロードファイルを削除しました')));
   }
 
+  Future<void> _confirmAndDownloadMissing() async {
+    if (_isFetchingEpisodeList) {
+      return;
+    }
+
+    if (DownloadManager.instance.isDownloading(work.workId)) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('この作品は現在ダウンロード中です')));
+      return;
+    }
+
+    setState(() {
+      _isFetchingEpisodeList = true;
+    });
+
+    try {
+      final episodeList = await repository.fetchEpisodeList(work);
+
+      if (!mounted) {
+        return;
+      }
+
+      if (episodeList.isEmpty) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('作品の目次を取得できませんでした')));
+        return;
+      }
+
+      final undownloadedEpisodes = episodeList.where((entry) {
+        final episodeNo = int.tryParse(entry['episodeNo'] ?? '');
+
+        if (episodeNo == null) {
+          return false;
+        }
+
+        return !repository.isDownloaded(work, episodeNo);
+      }).toList();
+
+      if (undownloadedEpisodes.isEmpty) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('すべての話がダウンロード済みです')));
+        return;
+      }
+
+      final downloadedCount = episodeList.length - undownloadedEpisodes.length;
+
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) {
+          return AlertDialog(
+            title: const Text('不足分をダウンロード'),
+            content: Text(
+              '全${episodeList.length}話のうち、'
+              '$downloadedCount話がダウンロード済みです。\n\n'
+              '未ダウンロードの${undownloadedEpisodes.length}話を'
+              'ダウンロードしますか？',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.of(dialogContext).pop(false);
+                },
+                child: const Text('キャンセル'),
+              ),
+              FilledButton.icon(
+                onPressed: () {
+                  Navigator.of(dialogContext).pop(true);
+                },
+                icon: const Icon(Icons.download),
+                label: const Text('ダウンロード'),
+              ),
+            ],
+          );
+        },
+      );
+
+      if (confirmed != true || !mounted) {
+        return;
+      }
+
+      final started = await DownloadManager.instance.enqueueBulk(
+        work: work,
+        episodeList: episodeList,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      if (started) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '未ダウンロードの${undownloadedEpisodes.length}話の'
+              'ダウンロードを開始しました。'
+              '他の画面に移動しても続行されます。',
+            ),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'ダウンロードを開始できませんでした。'
+              'すでに実行中か、すべてダウンロード済みです。',
+            ),
+          ),
+        );
+      }
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('目次の取得に失敗しました: $error')));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isFetchingEpisodeList = false;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final box = Hive.box<Download>('downloads');
@@ -1026,11 +1410,28 @@ class DownloadedWorkScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: Text(work.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+        actions: [
+          IconButton(
+            tooltip: '不足分をダウンロード',
+            onPressed: _isFetchingEpisodeList
+                ? null
+                : _confirmAndDownloadMissing,
+            icon: _isFetchingEpisodeList
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.download),
+          ),
+        ],
       ),
+
       body: ValueListenableBuilder<Box<Download>>(
         valueListenable: box.listenable(),
         builder: (context, downloadBox, _) {
           final downloads = _downloads(downloadBox);
+          final visibleDownloads = _visibleDownloads(downloads);
 
           if (downloads.isEmpty) {
             return const Center(child: Text('ダウンロードした話はありません'));
@@ -1105,7 +1506,7 @@ class DownloadedWorkScreen extends StatelessWidget {
                             ),
                           ),
                         Text(
-                          '全${work.totalEpisodeCount}話',
+                          '全${_onlineEpisodeCount ?? work.totalEpisodeCount}話',
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.grey[500],
@@ -1113,10 +1514,13 @@ class DownloadedWorkScreen extends StatelessWidget {
                         ),
                       ],
                     ),
-                    if (work.summary.trim().isNotEmpty) ...[
+                    if ((html_parser.parseFragment(work.summary).text ?? '')
+                        .trim()
+                        .isNotEmpty) ...[
                       const SizedBox(height: 10),
                       Text(
-                        work.summary.trim(),
+                        (html_parser.parseFragment(work.summary).text ?? '')
+                            .trim(),
                         maxLines: 6,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -1165,116 +1569,145 @@ class DownloadedWorkScreen extends StatelessWidget {
               ),
               const Divider(height: 1),
               Expanded(
-                child: ListView.separated(
-                  itemCount: downloads.length,
-                  separatorBuilder: (_, __) {
-                    return const Divider(height: 1);
-                  },
-                  itemBuilder: (context, index) {
-                    final download = downloads[index];
+                child: Column(
+                  children: [
+                    _buildEpisodePaginationBar(context, downloads),
 
-                    final title = download.episodeTitle.isNotEmpty
-                        ? download.episodeTitle
-                        : '第${download.episodeNo}話';
+                    const Divider(height: 1),
 
-                    final publishedDate = _formatPublishedDate(
-                      download.publishedAt,
-                    );
+                    Expanded(
+                      child: Scrollbar(
+                        controller: _episodeScrollController,
+                        thumbVisibility: false,
+                        trackVisibility: false,
+                        interactive: true,
+                        thickness: 6,
+                        radius: const Radius.circular(8),
+                        scrollbarOrientation: ScrollbarOrientation.right,
+                        child: ListView.separated(
+                          controller: _episodeScrollController,
+                          padding: const EdgeInsets.only(bottom: 16),
+                          itemCount: visibleDownloads.length,
 
-                    final isRead = repository.isEpisodeRead(
-                      work.workId,
-                      download.episodeNo,
-                    );
+                          separatorBuilder: (_, __) {
+                            return const Divider(height: 1);
+                          },
+                          itemBuilder: (context, index) {
+                            final download = visibleDownloads[index];
 
-                    return GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: () {
-                        _openReader(context, download);
-                      },
-                      child: Container(
-                        constraints: const BoxConstraints(minHeight: 64),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 8,
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(
-                              Icons.download_done,
-                              size: 20,
-                              color: Colors.teal,
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    '第${download.episodeNo}話',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: Colors.grey[500],
+                            final title = download.episodeTitle.isNotEmpty
+                                ? download.episodeTitle
+                                : '第${download.episodeNo}話';
+
+                            final publishedDate = _formatPublishedDate(
+                              download.publishedAt,
+                            );
+
+                            final isRead = repository.isEpisodeRead(
+                              work.workId,
+                              download.episodeNo,
+                            );
+
+                            return GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: () {
+                                _openReader(context, download);
+                              },
+                              child: Container(
+                                constraints: const BoxConstraints(
+                                  minHeight: 64,
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 8,
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.download_done,
+                                      size: 20,
+                                      color: Colors.teal,
                                     ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    title,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      color: isRead ? Colors.grey : null,
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            '第${download.episodeNo}話',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              color: Colors.grey[500],
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            title,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              fontSize: 14,
+                                              color: isRead
+                                                  ? Colors.grey
+                                                  : null,
+                                            ),
+                                          ),
+                                          if (publishedDate.isNotEmpty) ...[
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              '掲載日：$publishedDate',
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: isRead
+                                                    ? Colors.grey
+                                                    : Theme.of(context)
+                                                          .textTheme
+                                                          .bodySmall
+                                                          ?.color
+                                                          ?.withValues(
+                                                            alpha: 0.65,
+                                                          ),
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
                                     ),
-                                  ),
-                                  if (publishedDate.isNotEmpty) ...[
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      '掲載日：$publishedDate',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: isRead
-                                            ? Colors.grey
-                                            : Theme.of(context)
-                                                  .textTheme
-                                                  .bodySmall
-                                                  ?.color
-                                                  ?.withValues(alpha: 0.65),
+                                    if (isRead)
+                                      const Icon(
+                                        Icons.check,
+                                        size: 19,
+                                        color: Colors.grey,
+                                      ),
+                                    GestureDetector(
+                                      behavior: HitTestBehavior.opaque,
+                                      onTap: () {
+                                        _deleteEpisode(context, download);
+                                      },
+                                      child: const SizedBox(
+                                        width: 40,
+                                        height: 44,
+                                        child: Center(
+                                          child: Icon(
+                                            Icons.delete_outline,
+                                            size: 19,
+                                            color: Colors.grey,
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   ],
-                                ],
-                              ),
-                            ),
-                            if (isRead)
-                              const Icon(
-                                Icons.check,
-                                size: 19,
-                                color: Colors.grey,
-                              ),
-                            GestureDetector(
-                              behavior: HitTestBehavior.opaque,
-                              onTap: () {
-                                _deleteEpisode(context, download);
-                              },
-                              child: const SizedBox(
-                                width: 40,
-                                height: 44,
-                                child: Center(
-                                  child: Icon(
-                                    Icons.delete_outline,
-                                    size: 19,
-                                    color: Colors.grey,
-                                  ),
                                 ),
                               ),
-                            ),
-                          ],
+                            );
+                          },
                         ),
                       ),
-                    );
-                  },
+                    ),
+                  ],
                 ),
               ),
             ],

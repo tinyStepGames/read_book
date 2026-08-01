@@ -71,16 +71,40 @@ class _ReaderScreenState extends State<ReaderScreen> {
   ///
   /// 下へ読み進める方向：
   ///   スクロール位置が大きくなるのでツールバーを非表示。
+  /// スクロール方向に応じてツールバーを表示・非表示にする。
   void _onScroll() {
     if (!_scrollController.hasClients) return;
 
-    final currentOffset = _scrollController.offset;
-    final difference = currentOffset - _lastOffset;
+    final position = _scrollController.position;
 
-    // 小さな揺れでは表示状態を変更しない
-    if (difference.abs() < 2) {
+    // iOSの上下端バウンド中は方向判定を行わない。
+    // バウンドから戻る動きを通常スクロールとして扱うと、
+    // ツールバーが表示・非表示を繰り返して画面がちらつく。
+    if (position.outOfRange) return;
+
+    final currentOffset = position.pixels;
+    final minOffset = position.minScrollExtent;
+    final maxOffset = position.maxScrollExtent;
+
+    // 上端と下端ではツールバーを表示して操作できるようにする。
+    if (currentOffset <= minOffset + 1 || currentOffset >= maxOffset - 1) {
+      _lastOffset = currentOffset;
+
+      if (!_toolbarVisible && mounted) {
+        setState(() {
+          _toolbarVisible = true;
+        });
+      }
+
       return;
     }
+
+    final difference = currentOffset - _lastOffset;
+
+    // 小さな揺れでは表示状態を変更しない。
+    if (difference.abs() < 2) return;
+
+    _lastOffset = currentOffset;
 
     if (difference < 0) {
       // 作品の上部へ戻る方向
@@ -97,8 +121,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
         });
       }
     }
-
-    _lastOffset = currentOffset;
   }
 
   /// 本文部分をタップするとツールバーの表示状態を切り替える。
@@ -516,6 +538,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
         onTap: _toggleToolbar,
         child: SingleChildScrollView(
           controller: _scrollController,
+          physics: const ClampingScrollPhysics(),
           padding: const EdgeInsets.only(right: 10, bottom: 80),
 
           child: Column(
