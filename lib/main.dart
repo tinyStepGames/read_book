@@ -18,6 +18,8 @@ import 'services/search_request_controller.dart';
 import 'services/download_manager.dart';
 import 'models/download.dart';
 import 'models/read_mark.dart';
+import 'models/site.dart';
+import 'utils/html_text_decoder.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -45,7 +47,54 @@ Future<void> main() async {
   await _openBoxSafely<Download>('downloads');
   await _openBoxSafely<ReadMark>('read_marks');
 
+  await _normalizeStoredWorkMetadata();
+
   runApp(MyApp(startupMessage: startupMessage));
+}
+
+/// 過去にHTML文字参照のまま保存された、なろう作品情報を修復します。
+///
+/// Hiveの作品やダウンロード本文は削除しません。
+Future<void> _normalizeStoredWorkMetadata() async {
+  final box = Hive.box<Work>('works');
+  final keys = box.keys.toList();
+
+  for (final key in keys) {
+    final work = box.get(key);
+
+    if (work == null) {
+      continue;
+    }
+
+    // なろうAPI由来のデータのみを対象にします。
+    if (work.siteIndex != Site.narou.index) {
+      continue;
+    }
+
+    final normalizedTitle = decodeHtmlText(work.title);
+    final normalizedAuthor = decodeHtmlText(work.author);
+    final normalizedSummary = decodeHtmlText(work.summary);
+    final normalizedKeyword = work.keyword == null
+        ? null
+        : decodeHtmlText(work.keyword!);
+
+    final changed =
+        normalizedTitle != work.title ||
+        normalizedAuthor != work.author ||
+        normalizedSummary != work.summary ||
+        normalizedKeyword != work.keyword;
+
+    if (!changed) {
+      continue;
+    }
+
+    work.title = normalizedTitle;
+    work.author = normalizedAuthor;
+    work.summary = normalizedSummary;
+    work.keyword = normalizedKeyword;
+
+    await box.put(key, work);
+  }
 }
 
 Future<void> _openBoxSafely<T>(String name) async {

@@ -26,17 +26,67 @@ class DecoratedNovelText extends StatelessWidget {
       return Text(body, style: bodyStyle);
     }
 
-    final payload = NovelBodyCodec.payloadOf(
-      body,
-    ).replaceAll(RegExp(r'\n[ \t]*\n(?:[ \t]*\n)+'), '\n\n');
+    final payload = NovelBodyCodec.payloadOf(body)
+        // 保存済み本文に残っている区分名を表示時に取り除きます。
+        .replaceAll(
+          RegExp(
+            r'<strong>【(?:前書き|本文|あとがき)】</strong>'
+            r'[ \t]*(?:\r?\n)*',
+          ),
+          '',
+        )
+        .replaceAll(RegExp(r'\n[ \t]*\n(?:[ \t]*\n)+'), '\n\n');
 
-    final fragment = html_parser.parseFragment(payload);
+    // <hr>ごとに本文をブロックへ分割します。
+    final sectionPayloads = payload
+        .split(RegExp(r'<hr\s*/?>', caseSensitive: false))
+        .map(
+          (section) => section
+              .replaceFirst(RegExp(r'^[\r\n]+'), '')
+              .replaceFirst(RegExp(r'[\r\n]+$'), ''),
+        )
+        .where((section) => section.trim().isNotEmpty)
+        .toList();
 
-    final spans = _buildNodes(fragment.nodes, bodyStyle);
+    // 区切りがない本文は、従来どおり1つのRichTextで表示します。
+    if (sectionPayloads.length <= 1) {
+      final section = sectionPayloads.isEmpty ? payload : sectionPayloads.first;
 
+      final fragment = html_parser.parseFragment(section);
+      final spans = _buildNodes(fragment.nodes, bodyStyle);
+
+      return SelectionArea(
+        child: RichText(
+          text: TextSpan(style: bodyStyle, children: spans),
+        ),
+      );
+    }
+
+    // 前書き・本文・あとがきを別々のRichTextとして表示します。
+    //
+    // RichText内の罫線文字ではなく、ブロック間に本物のDividerを
+    // 配置するため、画面幅が狭くなっても折り返されません。
     return SelectionArea(
-      child: RichText(
-        text: TextSpan(style: bodyStyle, children: spans),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var index = 0; index < sectionPayloads.length; index++) ...[
+            RichText(
+              text: TextSpan(
+                style: bodyStyle,
+                children: _buildNodes(
+                  html_parser.parseFragment(sectionPayloads[index]).nodes,
+                  bodyStyle,
+                ),
+              ),
+            ),
+            if (index < sectionPayloads.length - 1)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Divider(height: 1, thickness: 1),
+              ),
+          ],
+        ],
       ),
     );
   }

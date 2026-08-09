@@ -6,6 +6,7 @@ import 'package:html/parser.dart' as html_parser;
 
 import '../models/episode.dart';
 import '../models/site.dart';
+import '../utils/html_text_decoder.dart';
 import '../utils/novel_body_codec.dart';
 import '../utils/search_query_parser.dart';
 
@@ -115,7 +116,6 @@ class NarouApiClient {
 
     // notwordは送信しません。
     // 除外処理は、このメソッドの後半でアプリ側にて行います。
-
     final response = await _dio.get<dynamic>(
       _searchEndpoint,
       queryParameters: queryParameters,
@@ -171,9 +171,6 @@ class NarouApiClient {
   }
 
   /// 検索種別に応じて、除外判定対象の文字列を作成します。
-  ///
-  /// このメソッドはsearch()の外側、
-  /// NarouApiClientクラスの内側に配置します。
   String _buildSearchableText({
     required NarouSearchResult result,
     required bool authorNameOnly,
@@ -355,7 +352,6 @@ class NarouApiClient {
           }
 
           final href = titleElement.attributes['href']?.trim() ?? '';
-
           final title = _cleanText(titleElement.text);
 
           if (href.isEmpty || title.isEmpty) {
@@ -403,7 +399,6 @@ class NarouApiClient {
             final titleElement = titleAnchors[index];
 
             final href = titleElement.attributes['href']?.trim() ?? '';
-
             final title = _cleanText(titleElement.text);
 
             if (href.isEmpty || title.isEmpty) {
@@ -549,7 +544,7 @@ class NarouApiClient {
       throw StateError('本文が空です');
     }
 
-    final body = NovelBodyCodec.encodeElement(bodyElement);
+    final body = _encodeNarouEpisodeBody(bodyElement);
 
     return Episode(
       workId: normalizedWorkId,
@@ -560,9 +555,96 @@ class NarouApiClient {
     );
   }
 
+  /// なろうの前書き・本文・あとがきを区分して保存します。
+  ///
+  /// 前書き・本文・あとがきの間には区切り線を挿入します。
+  /// 古いHTML構造では、従来どおり親要素全体を保存します。
+  String _encodeNarouEpisodeBody(Element bodyElement) {
+    Element? prefaceElement;
+    Element? mainElement;
+    Element? afterwordElement;
+
+    final textElements = bodyElement.querySelectorAll('.p-novel__text');
+
+    for (final element in textElements) {
+      if (element.classes.contains('p-novel__text--preface')) {
+        prefaceElement ??= element;
+        continue;
+      }
+
+      if (element.classes.contains('p-novel__text--afterword')) {
+        afterwordElement ??= element;
+        continue;
+      }
+
+      mainElement ??= element;
+    }
+
+    // 旧形式のHTMLなど、区分要素が見つからない場合は
+    // 従来どおり親要素全体を保存します。
+    if (prefaceElement == null &&
+        mainElement == null &&
+        afterwordElement == null) {
+      return NovelBodyCodec.encodeElement(bodyElement);
+    }
+
+    final hasPreface =
+        prefaceElement != null && prefaceElement.text.trim().isNotEmpty;
+
+    final hasAfterword =
+        afterwordElement != null && afterwordElement.text.trim().isNotEmpty;
+
+    final hasAdditionalSection = hasPreface || hasAfterword;
+    final sections = <String>[];
+
+    void addSection({
+      required String label,
+      required Element? element,
+      required bool showLabel,
+    }) {
+      if (element == null || element.text.trim().isEmpty) {
+        return;
+      }
+
+      final encoded = NovelBodyCodec.encodeElement(element);
+
+      final payload = NovelBodyCodec.payloadOf(
+        encoded,
+      ).replaceFirst(RegExp(r'\n+$'), '');
+
+      if (payload.trim().isEmpty) {
+        return;
+      }
+
+      if (showLabel) {
+        sections.add('<strong>【$label】</strong>\n\n$payload');
+      } else {
+        sections.add(payload);
+      }
+    }
+
+    addSection(label: '前書き', element: prefaceElement, showLabel: true);
+
+    addSection(
+      label: '本文',
+      element: mainElement,
+      showLabel: hasAdditionalSection,
+    );
+
+    addSection(label: 'あとがき', element: afterwordElement, showLabel: true);
+
+    if (sections.isEmpty) {
+      return NovelBodyCodec.encodeElement(bodyElement);
+    }
+
+    return '${NovelBodyCodec.prefix}'
+        '${sections.join('\n\n<hr>\n\n')}';
+  }
+
   // ---------------------------------------------------------------------------
   // 補助メソッド
   // ---------------------------------------------------------------------------
+
   /// 現在の目次ページに、次ページへのリンクがあるか確認します。
   bool _hasNextEpisodeListPage({
     required Document document,
@@ -698,14 +780,14 @@ class NarouSearchResult {
 
   factory NarouSearchResult.fromJson(Map<String, dynamic> json) {
     return NarouSearchResult(
-      title: json['title']?.toString() ?? '',
+      title: decodeHtmlText(json['title']?.toString() ?? ''),
       ncode: json['ncode']?.toString() ?? '',
       authorId: json['userid']?.toString() ?? '',
-      author: json['writer']?.toString() ?? '',
-      summary: json['story']?.toString() ?? '',
+      author: decodeHtmlText(json['writer']?.toString() ?? ''),
+      summary: decodeHtmlText(json['story']?.toString() ?? ''),
       biggenre: _toInt(json['biggenre']),
       genre: _toInt(json['genre']),
-      keyword: json['keyword']?.toString() ?? '',
+      keyword: decodeHtmlText(json['keyword']?.toString() ?? ''),
       generalFirstup: json['general_firstup']?.toString() ?? '',
       generalLastup: json['general_lastup']?.toString() ?? '',
       end: _toInt(json['end']),
