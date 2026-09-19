@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
@@ -9,8 +11,10 @@ import 'models/work.dart';
 import 'models/download_job.dart';
 import 'screens/favorite_screen.dart';
 import 'screens/history_screen.dart';
+import 'screens/reader_screen.dart';
 import 'screens/search_screen.dart';
 import 'screens/archive_screen.dart';
+import 'services/app_session_service.dart';
 import 'services/backup_service.dart';
 
 import 'services/novel_repository.dart';
@@ -20,6 +24,7 @@ import 'models/download.dart';
 import 'models/read_mark.dart';
 import 'models/site.dart';
 import 'utils/html_text_decoder.dart';
+import 'utils/no_animation_route.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -46,6 +51,7 @@ Future<void> main() async {
   await _openBoxSafely<DownloadJob>('download_jobs');
   await _openBoxSafely<Download>('downloads');
   await _openBoxSafely<ReadMark>('read_marks');
+  await _openBoxSafely<dynamic>(AppSessionService.boxName);
 
   await _normalizeStoredWorkMetadata();
 
@@ -118,6 +124,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'Read Book',
+    restorationScopeId: 'read_book_app',
     themeMode: ThemeMode.system,
     theme: ThemeData(
       useMaterial3: true,
@@ -155,7 +162,7 @@ class _RootScreenState extends State<RootScreen> {
   final NovelRepository _repository = NovelRepository();
   final SearchRequestController _searchRequestController =
       SearchRequestController();
-  int _currentIndex = 0;
+  int _currentIndex = AppSessionService.selectedTab;
 
   late final List<Widget> _screens = [
     SearchScreen(
@@ -166,30 +173,64 @@ class _RootScreenState extends State<RootScreen> {
       repository: _repository,
       searchRequestController: _searchRequestController,
       onNavigateToSearch: () {
-        setState(() {
-          _currentIndex = 0;
-        });
+        _selectTab(0);
       },
     ),
     HistoryScreen(
       repository: _repository,
       searchRequestController: _searchRequestController,
       onNavigateToSearch: () {
-        setState(() {
-          _currentIndex = 0;
-        });
+        _selectTab(0);
       },
     ),
     ArchiveScreen(
       repository: _repository,
       searchRequestController: _searchRequestController,
       onNavigateToSearch: () {
-        setState(() {
-          _currentIndex = 0;
-        });
+        _selectTab(0);
       },
     ),
   ];
+
+  void _selectTab(int index) {
+    final normalizedIndex = index.clamp(0, _screens.length - 1);
+
+    if (_currentIndex != normalizedIndex) {
+      setState(() {
+        _currentIndex = normalizedIndex;
+      });
+    }
+
+    unawaited(AppSessionService.saveSelectedTab(normalizedIndex));
+  }
+
+  void _restoreLastReader() {
+    final session = AppSessionService.readerSession;
+
+    if (session == null) {
+      return;
+    }
+
+    final work = _repository.getWork(session.workId);
+
+    if (work == null) {
+      unawaited(AppSessionService.clearReader());
+      return;
+    }
+
+    Navigator.of(context).push<void>(
+      noAnimationRoute<void>(
+        ReaderScreen(
+          repository: _repository,
+          work: work,
+          episodeNo: session.episodeNo,
+          episodeTitle: session.episodeTitle,
+          initialScrollFraction: session.scrollFraction,
+          initialFontSize: session.fontSize,
+        ),
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -198,9 +239,15 @@ class _RootScreenState extends State<RootScreen> {
     DownloadManager.init(_repository);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+
+      _restoreLastReader();
+
       final message = widget.startupMessage;
 
-      if (!mounted || message == null || message.trim().isEmpty) {
+      if (message == null || message.trim().isEmpty) {
         return;
       }
 
@@ -216,11 +263,7 @@ class _RootScreenState extends State<RootScreen> {
       body: IndexedStack(index: _currentIndex, children: _screens),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
-        onDestinationSelected: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
+        onDestinationSelected: _selectTab,
         destinations: const [
           NavigationDestination(icon: Icon(Icons.search), label: '検索'),
           NavigationDestination(icon: Icon(Icons.star), label: 'お気に入り'),

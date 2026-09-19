@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -5,6 +7,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import '../models/history_entry.dart';
 import '../models/site.dart';
 import '../models/work.dart';
+import '../services/app_session_service.dart';
 import '../services/novel_repository.dart';
 import '../widgets/decorated_novel_text.dart';
 
@@ -13,6 +16,8 @@ class ReaderScreen extends StatefulWidget {
   final Work work;
   final int episodeNo;
   final String episodeTitle;
+  final double initialScrollFraction;
+  final double initialFontSize;
 
   const ReaderScreen({
     super.key,
@@ -20,16 +25,24 @@ class ReaderScreen extends StatefulWidget {
     required this.work,
     required this.episodeNo,
     required this.episodeTitle,
+    this.initialScrollFraction = 0,
+    this.initialFontSize = 16,
   });
 
   @override
   State<ReaderScreen> createState() => _ReaderScreenState();
 }
 
-class _ReaderScreenState extends State<ReaderScreen> {
+class _ReaderScreenState extends State<ReaderScreen>
+    with WidgetsBindingObserver {
   String _body = '';
   bool _isLoading = true;
-  double _fontSize = 16;
+  late double _fontSize;
+
+  late double _initialScrollFraction;
+  bool _didRestoreInitialScroll = false;
+  bool _appIsActive = true;
+  Timer? _saveTimer;
 
   late int _currentEpisodeNo;
   late String _currentEpisodeTitle;
@@ -47,10 +60,17 @@ class _ReaderScreenState extends State<ReaderScreen> {
   void initState() {
     super.initState();
 
+    WidgetsBinding.instance.addObserver(this);
+
     _currentEpisodeNo = widget.episodeNo;
     _currentEpisodeTitle = widget.episodeTitle;
+    _initialScrollFraction = widget.initialScrollFraction.clamp(0.0, 1.0);
+    _fontSize = widget.initialFontSize.clamp(10.0, 32.0);
 
-    _saveHistory();
+    unawaited(widget.repository.saveWork(widget.work));
+    unawaited(_saveHistory(scrollFraction: _initialScrollFraction));
+    unawaited(_saveReaderSession(_initialScrollFraction));
+
     _load();
     _loadEpisodeList();
 
@@ -58,7 +78,31 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _appIsActive = state == AppLifecycleState.resumed;
+
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _saveTimer?.cancel();
+      unawaited(_persistReadingState());
+    }
+  }
+
+  @override
   void dispose() {
+    _saveTimer?.cancel();
+
+    if (_appIsActive) {
+      // アプリ使用中に戻る操作でReaderを閉じた場合は、
+      // 次回起動時にReaderを強制復元しません。
+      unawaited(AppSessionService.clearReader());
+    } else {
+      unawaited(_persistReadingState());
+    }
+
+    WidgetsBinding.instance.removeObserver(this);
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     super.dispose();
@@ -72,6 +116,77 @@ class _ReaderScreenState extends State<ReaderScreen> {
   /// 下へ読み進める方向：
   ///   スクロール位置が大きくなるのでツールバーを非表示。
   /// スクロール方向に応じてツールバーを表示・非表示にする。
+  double get _currentScrollFraction {
+    if (!_scrollController.hasClients) {
+      return _initialScrollFraction;
+    }
+
+    final position = _scrollController.position;
+    final maximum = position.maxScrollExtent;
+
+    if (maximum <= 0) {
+      return 0;
+    }
+
+    return (position.pixels / maximum).clamp(0.0, 1.0);
+  }
+
+  void _scheduleReadingStateSave() {
+    _saveTimer?.cancel();
+
+    _saveTimer = Timer(const Duration(milliseconds: 600), () {
+      unawaited(_persistReadingState());
+    });
+  }
+
+  Future<void> _saveReaderSession(double scrollFraction) async {
+    await AppSessionService.saveReader(
+      workId: widget.work.workId,
+      episodeNo: _currentEpisodeNo,
+      episodeTitle: _currentEpisodeTitle,
+      scrollFraction: scrollFraction,
+      fontSize: _fontSize,
+    );
+  }
+
+  Future<void> _persistReadingState() async {
+    final scrollFraction = _currentScrollFraction;
+
+    await Future.wait<void>([
+      _saveHistory(scrollFraction: scrollFraction),
+      _saveReaderSession(scrollFraction),
+    ]);
+  }
+
+  void _restoreInitialScrollPosition() {
+    if (_didRestoreInitialScroll) {
+      return;
+    }
+
+    if (!_scrollController.hasClients) {
+      return;
+    }
+
+    if (_initialScrollFraction <= 0) {
+      _didRestoreInitialScroll = true;
+      return;
+    }
+
+    final position = _scrollController.position;
+    final maximum = position.maxScrollExtent;
+
+    if (maximum <= 0) {
+      return;
+    }
+
+    final target = maximum * _initialScrollFraction;
+
+    _scrollController.jumpTo(target.clamp(position.minScrollExtent, maximum));
+
+    _lastOffset = _scrollController.offset;
+    _didRestoreInitialScroll = true;
+  }
+
   void _onScroll() {
     if (!_scrollController.hasClients) return;
 
@@ -81,6 +196,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
     // バウンドから戻る動きを通常スクロールとして扱うと、
     // ツールバーが表示・非表示を繰り返して画面がちらつく。
     if (position.outOfRange) return;
+
+    _scheduleReadingStateSave();
 
     final currentOffset = position.pixels;
     final minOffset = position.minScrollExtent;
@@ -155,6 +272,12 @@ class _ReaderScreenState extends State<ReaderScreen> {
       setState(() {
         _body = body;
       });
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _restoreInitialScrollPosition();
+        }
+      });
     } catch (e) {
       if (!mounted) return;
 
@@ -220,7 +343,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     }
   }
 
-  Future<void> _saveHistory() async {
+  Future<void> _saveHistory({double? scrollFraction}) async {
     final episodeNo = _currentEpisodeNo;
     final episodeTitle = _currentEpisodeTitle;
 
@@ -230,6 +353,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
     if (existing != null) {
       existing.lastReadAt = DateTime.now();
+
+      if (scrollFraction != null) {
+        existing.scrollFraction = scrollFraction.clamp(0.0, 1.0);
+      }
 
       if (episodeTitle.isNotEmpty) {
         existing.episodeTitle = episodeTitle;
@@ -242,7 +369,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
         HistoryEntry(
           workId: widget.work.workId,
           episodeNo: episodeNo,
-          scrollFraction: 0,
+          scrollFraction: (scrollFraction ?? 0).clamp(0.0, 1.0),
           lastReadAt: DateTime.now(),
           episodeTitle: episodeTitle.isNotEmpty ? episodeTitle : null,
         ),
@@ -282,6 +409,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
     if (episodeNo == _currentEpisodeNo) return;
 
+    await _persistReadingState();
+
     setState(() {
       _currentEpisodeNo = episodeNo;
       _currentEpisodeTitle = episodeTitle;
@@ -297,8 +426,12 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
     _lastOffset = 0;
 
-    // 次話・前話も履歴に記録する
-    await _saveHistory();
+    // 次話・前話も履歴と復元情報に記録する
+    _initialScrollFraction = 0;
+    _didRestoreInitialScroll = true;
+
+    await _saveHistory(scrollFraction: 0);
+    await _saveReaderSession(0);
 
     if (!mounted) return;
 
@@ -329,6 +462,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
                         });
 
                         setSheetState(() {});
+                        _scheduleReadingStateSave();
                       },
                     ),
                     const SizedBox(width: 12),
@@ -348,6 +482,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
                         });
 
                         setSheetState(() {});
+                        _scheduleReadingStateSave();
                       },
                     ),
                   ],

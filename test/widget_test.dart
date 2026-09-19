@@ -65,6 +65,7 @@ void main() {
     await Hive.openBox<DownloadJob>('download_jobs');
     await Hive.openBox<Download>('downloads');
     await Hive.openBox<ReadMark>('read_marks');
+    await Hive.openBox<dynamic>('app_state');
   });
 
   tearDownAll(() async {
