@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:hive/hive.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
 import '../models/download_job.dart';
 import '../models/work.dart';
+import 'background_download_service.dart';
 import 'novel_repository.dart';
 
 class DownloadProgress {
@@ -22,7 +24,17 @@ class DownloadProgress {
 }
 
 class DownloadManager {
-  DownloadManager._(this._repository);
+  DownloadManager._(this._repository) {
+    if (Platform.isIOS) {
+      final service = BackgroundDownloadService(
+        _repository,
+        _handleBackgroundProgress,
+      );
+
+      _backgroundService = service;
+      unawaited(service.initialize());
+    }
+  }
 
   static DownloadManager? _instance;
 
@@ -41,24 +53,40 @@ class DownloadManager {
   }
 
   final NovelRepository _repository;
-  final Map<String, _ActiveDownload> _active = {};
+  BackgroundDownloadService? _backgroundService;
 
-  Box<DownloadJob> get _jobBox {
-    return Hive.box<DownloadJob>('download_jobs');
-  }
+  final Map<String, _ActiveDownload> _active = {};
+  final Map<String, DownloadProgress> _backgroundProgress = {};
+
+  Box<DownloadJob> get _jobBox => Hive.box<DownloadJob>('download_jobs');
 
   final StreamController<DownloadProgress> _progressController =
       StreamController<DownloadProgress>.broadcast();
 
-  Stream<DownloadProgress> get progressStream {
-    return _progressController.stream;
-  }
+  Stream<DownloadProgress> get progressStream => _progressController.stream;
 
   DownloadProgress progressOf(String workId) {
+    final background = _backgroundProgress[workId];
+
+    if (background != null) {
+      return background;
+    }
+
     final active = _active[workId];
 
     if (active != null) {
       return active.toProgress(workId);
+    }
+
+    final job = _jobBox.get(workId);
+
+    if (job != null && !job.isCompleted) {
+      return DownloadProgress(
+        workId: workId,
+        done: job.doneCount,
+        total: job.totalCount,
+        isRunning: false,
+      );
     }
 
     return DownloadProgress(
@@ -70,7 +98,8 @@ class DownloadManager {
   }
 
   bool isDownloading(String workId) {
-    return _active.containsKey(workId);
+    return _active.containsKey(workId) ||
+        (_backgroundProgress[workId]?.isRunning ?? false);
   }
 
   Future<void> downloadSingle({
@@ -80,8 +109,6 @@ class DownloadManager {
     String publishedAt = '',
   }) async {
     if (_repository.isDownloaded(work, episodeNo)) {
-      // すでにダウンロード済みでも、
-      // 掲載日がなければ補完します。
       if (publishedAt.trim().isNotEmpty) {
         await _repository.updateDownloadPublishedDate(
           work: work,
@@ -110,21 +137,14 @@ class DownloadManager {
     );
   }
 
-  /// 全話ダウンロードをキューに積みます。
-  ///
-  /// 戻り値:
-  /// - すでに実行中ならfalse
-  /// - 未ダウンロード話がなければfalse
-  /// - ダウンロードを開始した場合はtrue
   Future<bool> enqueueBulk({
     required Work work,
     required List<Map<String, String>> episodeList,
   }) async {
-    if (_active.containsKey(work.workId)) {
+    if (isDownloading(work.workId)) {
       return false;
     }
 
-    // 既存のダウンロードに掲載日を補完します。
     await _repository.updateDownloadPublishedDates(
       work: work,
       episodeList: episodeList,
@@ -132,7 +152,6 @@ class DownloadManager {
 
     final undownloaded = episodeList.where((entry) {
       final episodeNo = int.tryParse(entry['episodeNo'] ?? '') ?? 0;
-
       return !_repository.isDownloaded(work, episodeNo);
     }).toList();
 
@@ -140,14 +159,31 @@ class DownloadManager {
       return false;
     }
 
-    final active = _ActiveDownload(total: undownloaded.length);
+    if (Platform.isIOS) {
+      final service = _backgroundService;
+
+      if (service == null) {
+        throw StateError('iOSバックグラウンドサービスが初期化されていません');
+      }
+
+      return service.enqueueBulk(work: work, episodeList: undownloaded);
+    }
+
+    return _enqueueForegroundBulk(work: work, episodeList: undownloaded);
+  }
+
+  Future<bool> _enqueueForegroundBulk({
+    required Work work,
+    required List<Map<String, String>> episodeList,
+  }) async {
+    final active = _ActiveDownload(total: episodeList.length);
 
     _active[work.workId] = active;
     _emit(work.workId);
 
     final job = DownloadJob(
       workId: work.workId,
-      totalCount: undownloaded.length,
+      totalCount: episodeList.length,
       doneCount: 0,
       startedAt: DateTime.now(),
       isCompleted: false,
@@ -155,7 +191,7 @@ class DownloadManager {
 
     await _jobBox.put(work.workId, job);
 
-    unawaited(_runBulk(work, undownloaded, job));
+    unawaited(_runBulk(work, episodeList, job));
 
     return true;
   }
@@ -173,9 +209,7 @@ class DownloadManager {
 
     for (var index = 0; index < episodeList.length; index++) {
       final entry = episodeList[index];
-
       final episodeNo = int.tryParse(entry['episodeNo'] ?? '') ?? index + 1;
-
       final title = entry['title'] ?? '第$episodeNo話';
 
       final publishedAt =
@@ -210,7 +244,6 @@ class DownloadManager {
       job.doneCount = active.done;
 
       await job.save();
-
       _emit(work.workId);
     }
 
@@ -219,6 +252,28 @@ class DownloadManager {
 
     _active.remove(work.workId);
     _emit(work.workId);
+  }
+
+  void _handleBackgroundProgress(
+    String workId,
+    int done,
+    int total,
+    bool isRunning,
+  ) {
+    final progress = DownloadProgress(
+      workId: workId,
+      done: done,
+      total: total,
+      isRunning: isRunning,
+    );
+
+    if (isRunning) {
+      _backgroundProgress[workId] = progress;
+    } else {
+      _backgroundProgress.remove(workId);
+    }
+
+    _progressController.add(progress);
   }
 
   void _emit(String workId) {
@@ -244,6 +299,7 @@ class DownloadManager {
 
   Future<void> discardJob(DownloadJob job) async {
     await _jobBox.delete(job.workId);
+    _backgroundProgress.remove(job.workId);
   }
 }
 

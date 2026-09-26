@@ -420,6 +420,48 @@ class NovelRepository {
     );
   }
 
+  /// バックグラウンド取得済みの本文を既存形式で保存します。
+  Future<void> saveDownloadedEpisodeBody({
+    required Work work,
+    required int episodeNo,
+    required String episodeTitle,
+    required String body,
+    String publishedAt = '',
+  }) async {
+    await saveWork(work);
+
+    final key = _key(work.workId, episodeNo);
+    final existing = _downloadBox.get(key);
+
+    if (existing != null) {
+      final normalizedPublishedAt = publishedAt.trim();
+
+      if (normalizedPublishedAt.isNotEmpty &&
+          existing.publishedAt != normalizedPublishedAt) {
+        existing.publishedAt = normalizedPublishedAt;
+        await existing.save();
+      }
+
+      return;
+    }
+
+    if (body.trim().isEmpty) {
+      throw StateError('保存する本文が空です');
+    }
+
+    await _downloadBox.put(
+      key,
+      Download(
+        workId: work.workId,
+        episodeNo: episodeNo,
+        episodeTitle: episodeTitle,
+        body: body,
+        downloadedAt: DateTime.now(),
+        publishedAt: publishedAt.trim(),
+      ),
+    );
+  }
+
   /// 1話分の既存ダウンロードへ掲載日を設定します。
   Future<void> updateDownloadPublishedDate({
     required Work work,
