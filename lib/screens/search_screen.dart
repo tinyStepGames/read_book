@@ -9,6 +9,7 @@ import '../services/novel_repository.dart';
 import '../services/search_request_controller.dart';
 import '../utils/no_animation_route.dart';
 import '../widgets/expandable_work_card.dart';
+import 'archive_screen.dart';
 import 'work_detail_screen.dart';
 
 /// 1回の検索条件を表します。
@@ -843,6 +844,30 @@ class _SearchScreenState extends State<SearchScreen> {
             },
             onDeleteRead: () {
               _deleteRead(result);
+            },
+            onOpenDownloads: () async {
+              final work =
+                  widget.repository.getWork(result.ncode) ??
+                  widget.repository.workFromNarouResult(result);
+
+              await widget.repository.saveWork(work);
+
+              if (!context.mounted) {
+                return;
+              }
+
+              await Navigator.of(context).push<void>(
+                noAnimationRoute<void>(
+                  DownloadedWorkScreen(
+                    repository: widget.repository,
+                    work: work,
+                  ),
+                ),
+              );
+
+              if (mounted) {
+                setState(() {});
+              }
             },
           );
         },

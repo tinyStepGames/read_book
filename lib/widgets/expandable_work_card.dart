@@ -12,6 +12,7 @@ class ExpandableWorkCard extends StatefulWidget {
   final ValueChanged<FavoriteColor?> onFavoriteChanged;
   final VoidCallback? onOpenDetail;
   final VoidCallback? onDownload;
+  final VoidCallback? onOpenDownloads;
   final ValueChanged<String>? onSearchAuthor;
   final ValueChanged<String>? onSearchTag;
   final bool hasAnyRead;
@@ -26,6 +27,7 @@ class ExpandableWorkCard extends StatefulWidget {
     required this.onFavoriteChanged,
     this.onOpenDetail,
     this.onDownload,
+    this.onOpenDownloads,
     this.onSearchAuthor,
     this.onSearchTag,
     this.hasAnyRead = false,
@@ -70,6 +72,18 @@ class _ExpandableWorkCardState extends State<ExpandableWorkCard> {
               },
               child: const Text('ダウンロード'),
             ),
+            if (widget.hasAnyDownload)
+              CupertinoActionSheetAction(
+                onPressed: () {
+                  Navigator.pop(
+                    sheetContext,
+                    'open_download',
+                  );
+                },
+                child: const Text(
+                  'ダウンロードファイルを開く',
+                ),
+              ),
             if (widget.hasAnyDownload)
               CupertinoActionSheetAction(
                 isDestructiveAction: true,
@@ -123,6 +137,10 @@ class _ExpandableWorkCardState extends State<ExpandableWorkCard> {
       return;
     }
 
+    if (selected == 'open_download') {
+      widget.onOpenDownloads?.call();
+      return;
+    }
     if (selected == 'favorite') {
       if (widget.favoriteColor == null) {
         widget.onFavoriteChanged(
