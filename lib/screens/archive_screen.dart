@@ -10,6 +10,7 @@ import '../services/novel_repository.dart';
 import '../services/search_request_controller.dart';
 import '../utils/no_animation_route.dart';
 import 'reader_screen.dart';
+import 'work_detail_screen.dart';
 import '../services/backup_service.dart';
 import '../services/download_manager.dart';
 
@@ -494,14 +495,11 @@ class SiteArchiveScreen extends StatelessWidget {
     onNavigateToSearch();
   }
 
-  void _searchByTitle(BuildContext context, Work work) {
-    final title = work.title.trim();
-
-    if (title.isEmpty) return;
-
-    _navigateToSearch(
-      context,
-      SearchRequest(keyword: title, siteIndex: work.siteIndex),
+  void _openWorkDetail(BuildContext context, Work work) {
+    Navigator.of(context).push<void>(
+      noAnimationRoute<void>(
+        WorkDetailScreen(repository: repository, work: work),
+      ),
     );
   }
 
@@ -635,9 +633,12 @@ class SiteArchiveScreen extends StatelessWidget {
           actions: [
             CupertinoActionSheetAction(
               onPressed: () {
-                Navigator.of(popupContext).pop(_WorkMenuAction.searchByTitle);
+                Navigator.of(popupContext).pop(_WorkMenuAction.openWorkDetail);
               },
-              child: _buildActionLabel(CupertinoIcons.search, '作品名で検索'),
+              child: _buildActionLabel(
+                CupertinoIcons.book,
+                '作品ページを開く',
+              ),
             ),
             CupertinoActionSheetAction(
               onPressed: () {
@@ -675,8 +676,8 @@ class SiteArchiveScreen extends StatelessWidget {
     if (!context.mounted) return;
 
     switch (action) {
-      case _WorkMenuAction.searchByTitle:
-        _searchByTitle(context, work);
+      case _WorkMenuAction.openWorkDetail:
+        _openWorkDetail(context, work);
 
       case _WorkMenuAction.searchByTag:
         if (!hasTags) {
@@ -891,7 +892,7 @@ class SiteArchiveScreen extends StatelessWidget {
 
 enum _ArchiveMenuAction { createBackup, restoreBackup }
 
-enum _WorkMenuAction { searchByTitle, searchByTag, deleteDownloads }
+enum _WorkMenuAction { openWorkDetail, searchByTag, deleteDownloads }
 
 /// ダウンロード済み作品の各話一覧画面
 class DownloadedWorkScreen extends StatefulWidget {
