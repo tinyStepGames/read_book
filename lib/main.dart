@@ -265,10 +265,26 @@ class _RootScreenState extends State<RootScreen> {
         selectedIndex: _currentIndex,
         onDestinationSelected: _selectTab,
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.search), label: '検索'),
-          NavigationDestination(icon: Icon(Icons.star), label: 'お気に入り'),
-          NavigationDestination(icon: Icon(Icons.history), label: '履歴'),
-          NavigationDestination(icon: Icon(Icons.folder), label: '書庫'),
+          NavigationDestination(
+            icon: Icon(Icons.search),
+            label: '検索',
+            tooltip: '',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.star),
+            label: 'お気に入り',
+            tooltip: '',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.history),
+            label: '履歴',
+            tooltip: '',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.folder),
+            label: '書庫',
+            tooltip: '',
+          ),
         ],
       ),
     );
