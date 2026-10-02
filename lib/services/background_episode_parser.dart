@@ -25,11 +25,17 @@ class BackgroundEpisodeParser {
         document.querySelector('.p-novel__body') ??
         document.querySelector('#novel_honbun');
 
-    if (bodyElement == null || bodyElement.text.trim().isEmpty) {
+    if (bodyElement == null) {
       throw StateError('なろうの本文要素を取得できませんでした');
     }
 
-    return _encodeNarouBody(bodyElement);
+    final body = _encodeNarouBody(bodyElement);
+
+    if (NovelBodyCodec.payloadOf(body).trim().isEmpty) {
+      throw StateError('なろうの本文要素を取得できませんでした');
+    }
+
+    return body;
   }
 
   static String _encodeNarouBody(Element bodyElement) {
@@ -54,9 +60,15 @@ class BackgroundEpisodeParser {
     }
 
     final hasPreface =
-        prefaceElement != null && prefaceElement.text.trim().isNotEmpty;
+        prefaceElement != null &&
+        NovelBodyCodec.payloadOf(
+          NovelBodyCodec.encodeElement(prefaceElement),
+        ).trim().isNotEmpty;
     final hasAfterword =
-        afterwordElement != null && afterwordElement.text.trim().isNotEmpty;
+        afterwordElement != null &&
+        NovelBodyCodec.payloadOf(
+          NovelBodyCodec.encodeElement(afterwordElement),
+        ).trim().isNotEmpty;
     final showMainLabel = hasPreface || hasAfterword;
     final sections = <String>[];
 
@@ -65,7 +77,7 @@ class BackgroundEpisodeParser {
       required Element? element,
       required bool showLabel,
     }) {
-      if (element == null || element.text.trim().isEmpty) {
+      if (element == null) {
         return;
       }
 

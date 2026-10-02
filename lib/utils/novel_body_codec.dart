@@ -11,6 +11,11 @@ class NovelBodyCodec {
 
   static const String prefix = '@@READ_BOOK_RICH_V1@@\n';
 
+  static const HtmlEscape _elementEscape = HtmlEscape(HtmlEscapeMode.element);
+  static const HtmlEscape _attributeEscape = HtmlEscape(
+    HtmlEscapeMode.attribute,
+  );
+
   /// 装飾付き本文かどうかを判定します。
   static bool isRichBody(String body) => body.startsWith(prefix);
 
@@ -21,6 +26,62 @@ class NovelBodyCodec {
     }
 
     return body.substring(prefix.length);
+  }
+
+  /// みてみんの安全な挿絵URLをHTTPS形式へ正規化します。
+  ///
+  /// 許可するのは mitemin.net またはそのサブドメインだけです。
+  static Uri? normalizeIllustrationUri(String? source) {
+    final value = source?.trim() ?? '';
+    if (value.isEmpty) {
+      return null;
+    }
+
+    final normalizedSource = value.startsWith('//') ? 'https:$value' : value;
+    final uri = Uri.tryParse(normalizedSource);
+
+    if (uri == null ||
+        uri.scheme.toLowerCase() != 'https' ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty ||
+        (uri.hasPort && uri.port != 443)) {
+      return null;
+    }
+
+    final host = uri.host.toLowerCase();
+    if (host != 'mitemin.net' && !host.endsWith('.mitemin.net')) {
+      return null;
+    }
+
+    if (uri.path.isEmpty || uri.path == '/') {
+      return null;
+    }
+
+    return uri.replace(scheme: 'https', host: host).removeFragment();
+  }
+
+  /// 保存本文に、安全な挿絵タグが含まれているか判定します。
+  static bool containsSafeIllustration(String body) {
+    if (!isRichBody(body)) {
+      return false;
+    }
+
+    final pattern = RegExp(
+      r'<img\b[^>]*\bsrc\s*=\s*(?:"([^"]*)"|'
+      '([^'
+      ']*)'
+      ')[^>]*>',
+      caseSensitive: false,
+    );
+
+    for (final match in pattern.allMatches(payloadOf(body))) {
+      final source = match.group(1) ?? match.group(2);
+      if (normalizeIllustrationUri(source) != null) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   /// サイトの本文要素を、アプリ用の安全なHTMLへ変換します。
@@ -54,7 +115,7 @@ class NovelBodyCodec {
         return '';
       }
 
-      return const HtmlEscape(HtmlEscapeMode.element).convert(text);
+      return _elementEscape.convert(text);
     }
 
     if (node is! dom.Element) {
@@ -76,9 +137,7 @@ class NovelBodyCodec {
         if (node.classes.contains('emphasisDots') ||
             node.attributes['data-novel-emphasis'] == 'dot') {
           final text = node.text;
-          final escaped = const HtmlEscape(
-            HtmlEscapeMode.element,
-          ).convert(text);
+          final escaped = _elementEscape.convert(text);
 
           return '<em data-novel-emphasis="dot">$escaped</em>';
         }
@@ -114,17 +173,7 @@ class NovelBodyCodec {
         return '${_encodeNodes(node.nodes)}\n';
 
       case 'img':
-        final alt = node.attributes['alt']?.trim() ?? '';
-
-        if (alt.isEmpty) {
-          return '';
-        }
-
-        final escapedAlt = const HtmlEscape(
-          HtmlEscapeMode.element,
-        ).convert(alt);
-
-        return '[画像: $escapedAlt]';
+        return _encodeImage(node);
 
       case 'script':
       case 'style':
@@ -137,6 +186,23 @@ class NovelBodyCodec {
         // 未知のタグは装飾だけを外し、中の文章は残します。
         return _encodeNodes(node.nodes);
     }
+  }
+
+  static String _encodeImage(dom.Element imageElement) {
+    final source = imageElement.attributes['src'];
+    final uri = normalizeIllustrationUri(source);
+
+    if (uri == null) {
+      return '';
+    }
+
+    final alt = imageElement.attributes['alt']?.trim();
+    final safeAlt = alt == null || alt.isEmpty ? '挿絵' : alt;
+
+    final escapedSource = _attributeEscape.convert(uri.toString());
+    final escapedAlt = _attributeEscape.convert(safeAlt);
+
+    return '<img src="$escapedSource" alt="$escapedAlt">';
   }
 
   static String _encodeRuby(dom.Element rubyElement) {
@@ -167,17 +233,13 @@ class NovelBodyCodec {
       return '';
     }
 
-    final escapedBase = const HtmlEscape(
-      HtmlEscapeMode.element,
-    ).convert(baseText);
+    final escapedBase = _elementEscape.convert(baseText);
 
     if (normalizedRuby.isEmpty) {
       return escapedBase;
     }
 
-    final escapedRuby = const HtmlEscape(
-      HtmlEscapeMode.element,
-    ).convert(normalizedRuby);
+    final escapedRuby = _elementEscape.convert(normalizedRuby);
 
     return '<ruby>$escapedBase<rt>$escapedRuby</rt></ruby>';
   }

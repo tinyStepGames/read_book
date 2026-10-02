@@ -540,11 +540,11 @@ class NarouApiClient {
       throw StateError('本文要素を取得できませんでした');
     }
 
-    if (bodyElement.text.trim().isEmpty) {
+    final body = _encodeNarouEpisodeBody(bodyElement);
+
+    if (NovelBodyCodec.payloadOf(body).trim().isEmpty) {
       throw StateError('本文が空です');
     }
-
-    final body = _encodeNarouEpisodeBody(bodyElement);
 
     return Episode(
       workId: normalizedWorkId,
@@ -589,10 +589,16 @@ class NarouApiClient {
     }
 
     final hasPreface =
-        prefaceElement != null && prefaceElement.text.trim().isNotEmpty;
+        prefaceElement != null &&
+        NovelBodyCodec.payloadOf(
+          NovelBodyCodec.encodeElement(prefaceElement),
+        ).trim().isNotEmpty;
 
     final hasAfterword =
-        afterwordElement != null && afterwordElement.text.trim().isNotEmpty;
+        afterwordElement != null &&
+        NovelBodyCodec.payloadOf(
+          NovelBodyCodec.encodeElement(afterwordElement),
+        ).trim().isNotEmpty;
 
     final hasAdditionalSection = hasPreface || hasAfterword;
     final sections = <String>[];
@@ -602,7 +608,7 @@ class NarouApiClient {
       required Element? element,
       required bool showLabel,
     }) {
-      if (element == null || element.text.trim().isEmpty) {
+      if (element == null) {
         return;
       }
 
