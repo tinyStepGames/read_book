@@ -10,10 +10,16 @@ import '../models/read_mark.dart';
 import '../models/saved_search.dart';
 import '../models/site.dart';
 import '../models/work.dart';
+import 'illustration_storage_service.dart';
 import 'kakuyomu_scraper.dart';
 import 'narou_api_client.dart';
 
 class NovelRepository {
+  NovelRepository({IllustrationStorageService? illustrationStorageService})
+    : illustrationStorageService =
+          illustrationStorageService ?? IllustrationStorageService();
+
+  final IllustrationStorageService illustrationStorageService;
   final NarouApiClient narouApiClient = NarouApiClient();
   final KakuyomuScraper kakuyomuScraper = KakuyomuScraper();
 
@@ -64,6 +70,14 @@ class NovelRepository {
   Box<Favorite> get _favoriteBox => Hive.box<Favorite>('favorites');
   Box<SavedSearch> get _savedSearchBox =>
       Hive.box<SavedSearch>('saved_searches');
+
+  String _siteKeyForWork(Work work) {
+    if (work.siteIndex < 0 || work.siteIndex >= Site.values.length) {
+      throw StateError('作品のサイト情報が不正です');
+    }
+
+    return Site.values[work.siteIndex].name;
+  }
 
   String _key(String workId, int episodeNo) => '${workId}_$episodeNo';
 
@@ -386,15 +400,32 @@ class NovelRepository {
     await saveWork(work);
 
     final key = _key(work.workId, episodeNo);
-
+    final siteKey = _siteKeyForWork(work);
     final existing = _downloadBox.get(key);
 
     if (existing != null) {
+      final localizedBody = await illustrationStorageService
+          .localizeDownloadedBody(
+            siteKey: siteKey,
+            workId: work.workId,
+            episodeNo: episodeNo,
+            body: existing.body,
+          );
       final normalizedPublishedAt = publishedAt.trim();
+      var needsSave = false;
+
+      if (localizedBody != existing.body) {
+        existing.body = localizedBody;
+        needsSave = true;
+      }
 
       if (normalizedPublishedAt.isNotEmpty &&
           existing.publishedAt != normalizedPublishedAt) {
         existing.publishedAt = normalizedPublishedAt;
+        needsSave = true;
+      }
+
+      if (needsSave) {
         await existing.save();
       }
 
@@ -403,9 +434,17 @@ class NovelRepository {
 
     final cached = _episodeBox.get(key);
 
-    final body = cached != null
+    final sourceBody = cached != null
         ? cached.body
         : await _fetchBodyFromNetwork(work, episodeNo, episodeTitle);
+
+    final localizedBody = await illustrationStorageService
+        .localizeDownloadedBody(
+          siteKey: siteKey,
+          workId: work.workId,
+          episodeNo: episodeNo,
+          body: sourceBody,
+        );
 
     await _downloadBox.put(
       key,
@@ -413,7 +452,7 @@ class NovelRepository {
         workId: work.workId,
         episodeNo: episodeNo,
         episodeTitle: episodeTitle,
-        body: body,
+        body: localizedBody,
         downloadedAt: DateTime.now(),
         publishedAt: publishedAt.trim(),
       ),
@@ -430,23 +469,40 @@ class NovelRepository {
   }) async {
     await saveWork(work);
 
+    if (body.trim().isEmpty) {
+      throw StateError('保存する本文が空です');
+    }
+
     final key = _key(work.workId, episodeNo);
+    final localizedBody = await illustrationStorageService
+        .localizeDownloadedBody(
+          siteKey: _siteKeyForWork(work),
+          workId: work.workId,
+          episodeNo: episodeNo,
+          body: body,
+        );
     final existing = _downloadBox.get(key);
 
     if (existing != null) {
       final normalizedPublishedAt = publishedAt.trim();
+      var needsSave = false;
+
+      if (localizedBody != existing.body) {
+        existing.body = localizedBody;
+        needsSave = true;
+      }
 
       if (normalizedPublishedAt.isNotEmpty &&
           existing.publishedAt != normalizedPublishedAt) {
         existing.publishedAt = normalizedPublishedAt;
+        needsSave = true;
+      }
+
+      if (needsSave) {
         await existing.save();
       }
 
       return;
-    }
-
-    if (body.trim().isEmpty) {
-      throw StateError('保存する本文が空です');
     }
 
     await _downloadBox.put(
@@ -455,7 +511,7 @@ class NovelRepository {
         workId: work.workId,
         episodeNo: episodeNo,
         episodeTitle: episodeTitle,
-        body: body,
+        body: localizedBody,
         downloadedAt: DateTime.now(),
         publishedAt: publishedAt.trim(),
       ),
