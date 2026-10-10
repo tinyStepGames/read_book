@@ -400,11 +400,34 @@ class NovelRepository {
   }) async {
     final key = _key(work.workId, episodeNo);
 
-    // 1. 永続ダウンロード済みならそれを使う(ネットワークアクセス不要)
+    // 1. 永続ダウンロード済みならそれを使う。
+    //
+    // ローカル挿絵が欠落している場合だけ再取得を試みます。
+    // 挿絵の確認・取得に失敗しても、保存済み本文の表示は継続します。
     final downloaded = _downloadBox.get(key);
     if (downloaded != null) {
+      var body = downloaded.body;
+
+      try {
+        final localizedBody = await illustrationStorageService
+            .localizeDownloadedBody(
+              siteKey: _siteKeyForWork(work),
+              workId: work.workId,
+              episodeNo: episodeNo,
+              body: body,
+            );
+
+        if (localizedBody != body) {
+          downloaded.body = localizedBody;
+          await downloaded.save();
+          body = localizedBody;
+        }
+      } catch (_) {
+        // オフラインやストレージ障害時も、保存済み本文をそのまま表示します。
+      }
+
       await _markRead(work.workId, episodeNo);
-      return downloaded.body;
+      return body;
     }
 
     // 2. キャッシュにあれば使う(アクセス時刻を更新して長生きさせる)
