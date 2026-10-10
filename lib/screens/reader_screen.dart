@@ -705,7 +705,12 @@ class _ReaderScreenState extends State<ReaderScreen>
               SizedBox(height: _fontSize * 0.65),
 
               // 本文
-              DecoratedNovelText(body: _body, fontSize: _fontSize),
+              DecoratedNovelText(
+                body: _body,
+                fontSize: _fontSize,
+                illustrationStorageService:
+                    widget.repository.illustrationStorageService,
+              ),
 
               const SizedBox(height: 16),
 

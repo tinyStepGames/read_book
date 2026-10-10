@@ -1,18 +1,24 @@
+import 'dart:io';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:html/dom.dart' as dom;
 import 'package:html/parser.dart' as html_parser;
 
+import '../services/illustration_storage_service.dart';
 import '../utils/novel_body_codec.dart';
 
 /// ルビ・傍点などの装飾に対応した小説本文表示です。
 class DecoratedNovelText extends StatelessWidget {
   final String body;
   final double fontSize;
+  final IllustrationStorageService? illustrationStorageService;
 
   const DecoratedNovelText({
     super.key,
     required this.body,
     required this.fontSize,
+    this.illustrationStorageService,
   });
 
   @override
@@ -167,6 +173,32 @@ class DecoratedNovelText extends StatelessWidget {
           TextSpan(style: style, children: _buildNodes(node.nodes, style)),
         ];
 
+      case 'img':
+        final remoteUri = NovelBodyCodec.normalizeIllustrationUri(
+          node.attributes['src'],
+        );
+
+        if (remoteUri == null) {
+          return const <InlineSpan>[];
+        }
+
+        final alt = node.attributes['alt']?.trim();
+        final semanticLabel = alt == null || alt.isEmpty ? '挿絵' : alt;
+
+        return <InlineSpan>[
+          const TextSpan(text: '\n'),
+          WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: _IllustrationImage(
+              remoteUri: remoteUri,
+              localPath: node.attributes['data-local-src'],
+              semanticLabel: semanticLabel,
+              storageService: illustrationStorageService,
+            ),
+          ),
+          const TextSpan(text: '\n'),
+        ];
+
       case 'br':
         return const <InlineSpan>[TextSpan(text: '\n')];
 
@@ -243,6 +275,124 @@ class DecoratedNovelText extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+class _IllustrationImage extends StatefulWidget {
+  const _IllustrationImage({
+    required this.remoteUri,
+    required this.localPath,
+    required this.semanticLabel,
+    required this.storageService,
+  });
+
+  final Uri remoteUri;
+  final String? localPath;
+  final String semanticLabel;
+  final IllustrationStorageService? storageService;
+
+  @override
+  State<_IllustrationImage> createState() => _IllustrationImageState();
+}
+
+class _IllustrationImageState extends State<_IllustrationImage> {
+  late Future<File?> _localFileFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _localFileFuture = _resolveLocalFile();
+  }
+
+  @override
+  void didUpdateWidget(covariant _IllustrationImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.localPath != widget.localPath ||
+        oldWidget.storageService != widget.storageService) {
+      _localFileFuture = _resolveLocalFile();
+    }
+  }
+
+  Future<File?> _resolveLocalFile() {
+    final localPath = widget.localPath;
+    final storageService = widget.storageService;
+
+    if (localPath == null ||
+        localPath.trim().isEmpty ||
+        storageService == null) {
+      return Future<File?>.value();
+    }
+
+    return storageService.resolveLocalFile(localPath);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final imageWidth = math.max(1.0, math.min(screenWidth - 24, 960.0));
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: SizedBox(
+        width: imageWidth,
+        child: FutureBuilder<File?>(
+          future: _localFileFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const SizedBox(
+                height: 72,
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+
+            final localFile = snapshot.data;
+
+            if (localFile != null) {
+              return Image.file(
+                localFile,
+                width: imageWidth,
+                fit: BoxFit.contain,
+                semanticLabel: widget.semanticLabel,
+                errorBuilder: (context, error, stackTrace) {
+                  return _buildNetworkImage(imageWidth);
+                },
+              );
+            }
+
+            return _buildNetworkImage(imageWidth);
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNetworkImage(double imageWidth) {
+    return Image.network(
+      widget.remoteUri.toString(),
+      width: imageWidth,
+      fit: BoxFit.contain,
+      semanticLabel: widget.semanticLabel,
+      loadingBuilder: (context, child, loadingProgress) {
+        if (loadingProgress == null) {
+          return child;
+        }
+
+        return const SizedBox(
+          height: 72,
+          child: Center(child: CircularProgressIndicator()),
+        );
+      },
+      errorBuilder: (context, error, stackTrace) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Text(
+            '[画像を表示できません: ${widget.semanticLabel}]',
+            textAlign: TextAlign.center,
+          ),
+        );
+      },
     );
   }
 }
