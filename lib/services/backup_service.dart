@@ -1,10 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:archive/archive.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -17,6 +17,7 @@ import '../models/history_entry.dart';
 import '../models/read_mark.dart';
 import '../models/saved_search.dart';
 import '../models/work.dart';
+import 'illustration_storage_service.dart';
 
 /// Hiveに保存されているアプリデータのバックアップと復元を行います。
 ///
@@ -81,6 +82,52 @@ class BackupService {
     return result;
   }
 
+  /// Application Support内の挿絵ファイルをZIPへ追加します。
+  ///
+  /// ZIP内ではOSに依存しない「/」区切りの相対パスを使用します。
+  Future<void> _addIllustrationsToArchive(Archive archive) async {
+    final supportDirectory = await getApplicationSupportDirectory();
+    final illustrationDirectory = Directory(
+      '${supportDirectory.path}'
+      '${Platform.pathSeparator}'
+      '${IllustrationStorageService.directoryName}',
+    );
+
+    if (!await illustrationDirectory.exists()) {
+      return;
+    }
+
+    final rootPrefix = '${illustrationDirectory.path}${Platform.pathSeparator}';
+
+    await for (final entity in illustrationDirectory.list(
+      recursive: true,
+      followLinks: false,
+    )) {
+      if (entity is! File) {
+        continue;
+      }
+
+      if (!entity.path.startsWith(rootPrefix)) {
+        throw FileSystemException('挿絵ファイルの保存場所が不正です。', entity.path);
+      }
+
+      final relativePath = entity.path
+          .substring(rootPrefix.length)
+          .split(Platform.pathSeparator)
+          .join('/');
+
+      if (relativePath.isEmpty) {
+        continue;
+      }
+
+      final bytes = await entity.readAsBytes();
+
+      archive.addFile(
+        ArchiveFile('illustrations/$relativePath', bytes.length, bytes),
+      );
+    }
+  }
+
   /// バックアップZIPを作成します。
   Future<File> createBackupFile() async {
     await _flushAllBoxes();
@@ -93,6 +140,7 @@ class BackupService {
       'formatVersion': _backupFormatVersion,
       'createdAt': DateTime.now().toUtc().toIso8601String(),
       'boxes': _boxNames,
+      'illustrations': true,
     };
 
     final manifestBytes = utf8.encode(
@@ -117,6 +165,8 @@ class BackupService {
 
       archive.addFile(ArchiveFile('hive/$boxName.hive', bytes.length, bytes));
     }
+
+    await _addIllustrationsToArchive(archive);
 
     final zipBytes = ZipEncoder().encode(archive);
 
@@ -245,6 +295,9 @@ class BackupService {
     }
 
     Directory? rollbackDirectory;
+    Directory? stagedIllustrationDirectory;
+    Directory? illustrationDirectory;
+    var illustrationsChanged = false;
 
     try {
       final backupBytes = await pendingFile.readAsBytes();
@@ -279,10 +332,43 @@ class BackupService {
         }
       }
 
+      illustrationDirectory = Directory(
+        '${supportDirectory.path}'
+        '${Platform.pathSeparator}'
+        '${IllustrationStorageService.directoryName}',
+      );
+
+      stagedIllustrationDirectory = Directory(
+        '${supportDirectory.path}'
+        '${Platform.pathSeparator}'
+        'restore_staged_illustrations_$timestamp',
+      );
+
+      if (await stagedIllustrationDirectory.exists()) {
+        await stagedIllustrationDirectory.delete(recursive: true);
+      }
+
+      await stagedIllustrationDirectory.create(recursive: true);
+
+      for (final entry in restoredFiles.illustrationFiles.entries) {
+        final relativePlatformPath = entry.key
+            .split('/')
+            .join(Platform.pathSeparator);
+
+        final targetFile = File(
+          '${stagedIllustrationDirectory.path}'
+          '${Platform.pathSeparator}'
+          '$relativePlatformPath',
+        );
+
+        await targetFile.parent.create(recursive: true);
+        await targetFile.writeAsBytes(entry.value, flush: true);
+      }
+
       try {
         // バックアップ内のHiveファイルを配置します。
         for (final boxName in _boxNames) {
-          final bytes = restoredFiles[boxName];
+          final bytes = restoredFiles.hiveFiles[boxName];
 
           if (bytes == null) {
             throw FormatException('バックアップ内に $boxName のデータがありません。');
@@ -308,6 +394,22 @@ class BackupService {
 
           await temporaryFile.rename(targetFile.path);
         }
+
+        final rollbackIllustrationDirectory = Directory(
+          '${rollbackDirectory.path}'
+          '${Platform.pathSeparator}'
+          'illustrations',
+        );
+
+        illustrationsChanged = true;
+
+        if (await illustrationDirectory.exists()) {
+          await illustrationDirectory.rename(
+            rollbackIllustrationDirectory.path,
+          );
+        }
+
+        await stagedIllustrationDirectory.rename(illustrationDirectory.path);
       } catch (_) {
         // 復元途中で失敗した場合は元のファイルへ戻します。
         for (final boxName in _boxNames) {
@@ -329,6 +431,24 @@ class BackupService {
 
           if (await rollbackFile.exists()) {
             await rollbackFile.copy(targetFile.path);
+          }
+        }
+
+        if (illustrationsChanged) {
+          final rollbackIllustrationDirectory = Directory(
+            '${rollbackDirectory.path}'
+            '${Platform.pathSeparator}'
+            'illustrations',
+          );
+
+          if (await illustrationDirectory.exists()) {
+            await illustrationDirectory.delete(recursive: true);
+          }
+
+          if (await rollbackIllustrationDirectory.exists()) {
+            await rollbackIllustrationDirectory.rename(
+              illustrationDirectory.path,
+            );
           }
         }
 
@@ -367,12 +487,21 @@ class BackupService {
         }
       }
 
+      if (stagedIllustrationDirectory != null &&
+          await stagedIllustrationDirectory.exists()) {
+        try {
+          await stagedIllustrationDirectory.delete(recursive: true);
+        } catch (_) {
+          // 一時挿絵フォルダーの削除失敗は無視します。
+        }
+      }
+
       return 'バックアップの復元に失敗しました: $error';
     }
   }
 
   /// ZIPを読み込み、正しいRead Bookバックアップか確認します。
-  static Map<String, Uint8List> _readAndValidateBackup(Uint8List zipBytes) {
+  static _ValidatedBackup _readAndValidateBackup(Uint8List zipBytes) {
     Archive archive;
 
     try {
@@ -416,7 +545,7 @@ class BackupService {
       );
     }
 
-    final result = <String, Uint8List>{};
+    final hiveFiles = <String, Uint8List>{};
 
     for (final boxName in _boxNames) {
       final expectedName = 'hive/$boxName.hive';
@@ -433,10 +562,75 @@ class BackupService {
         throw FormatException('バックアップ内に $boxName のデータがありません。');
       }
 
-      result[boxName] = _contentToBytes(targetFile.content);
+      hiveFiles[boxName] = _contentToBytes(targetFile.content);
     }
 
-    return result;
+    final illustrationFiles = <String, Uint8List>{};
+
+    for (final file in archive.files) {
+      final name = file.name;
+
+      if (!name.startsWith('illustrations')) {
+        continue;
+      }
+
+      if (!file.isFile) {
+        continue;
+      }
+
+      final relativePath = _validateIllustrationEntryName(name);
+
+      if (illustrationFiles.containsKey(relativePath)) {
+        throw FormatException('バックアップ内に同じ挿絵ファイルが複数あります: $relativePath');
+      }
+
+      illustrationFiles[relativePath] = _contentToBytes(file.content);
+    }
+
+    return _ValidatedBackup(
+      hiveFiles: hiveFiles,
+      illustrationFiles: illustrationFiles,
+    );
+  }
+
+  /// ZIP内の挿絵エントリ名を検証し、安全な相対パスを返します。
+  static String _validateIllustrationEntryName(String name) {
+    const prefix = 'illustrations/';
+
+    if (!name.startsWith(prefix)) {
+      throw FormatException('挿絵ファイルのパスが不正です: $name');
+    }
+
+    if (name.contains(r'\') || name.startsWith('/')) {
+      throw FormatException('挿絵ファイルのパスが不正です: $name');
+    }
+
+    final relativePath = name.substring(prefix.length);
+    final segments = relativePath.split('/');
+
+    if (relativePath.isEmpty ||
+        segments.any(
+          (segment) =>
+              segment.isEmpty ||
+              segment == '.' ||
+              segment == '..' ||
+              segment.contains(':') ||
+              segment.contains('\u0000'),
+        )) {
+      throw FormatException('挿絵ファイルのパスが不正です: $name');
+    }
+
+    return relativePath;
+  }
+
+  /// テストでZIP検証結果を確認するための読み取り専用入口です。
+  @visibleForTesting
+  static Map<String, Uint8List> readIllustrationsForTesting(
+    Uint8List zipBytes,
+  ) {
+    return Map<String, Uint8List>.unmodifiable(
+      _readAndValidateBackup(zipBytes).illustrationFiles,
+    );
   }
 
   static Uint8List _contentToBytes(dynamic content) {
@@ -450,4 +644,14 @@ class BackupService {
 
     throw const FormatException('バックアップ内のデータを読み込めませんでした。');
   }
+}
+
+class _ValidatedBackup {
+  const _ValidatedBackup({
+    required this.hiveFiles,
+    required this.illustrationFiles,
+  });
+
+  final Map<String, Uint8List> hiveFiles;
+  final Map<String, Uint8List> illustrationFiles;
 }
