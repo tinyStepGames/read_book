@@ -265,13 +265,46 @@ class NovelRepository {
     return _readMarkBox.values.any((r) => r.workId == workId);
   }
 
-  /// ダウンロード済みファイルを全て削除する(既読状態には影響しない)
-  Future<void> deleteAllDownloads(String workId) async {
+  /// ダウンロード済みファイルと挿絵を全て削除する。
+  ///
+  /// 既読状態と履歴には影響しません。
+  Future<void> deleteAllDownloads(String workId, {required Site site}) async {
+    await illustrationStorageService.deleteWork(
+      siteKey: site.name,
+      workId: workId,
+    );
+
     final keys = _downloadBox.keys
-        .where((k) => _downloadBox.get(k)?.workId == workId)
+        .where((key) => _downloadBox.get(key)?.workId == workId)
         .toList();
-    for (final k in keys) {
-      await _downloadBox.delete(k);
+
+    for (final key in keys) {
+      await _downloadBox.delete(key);
+    }
+  }
+
+  /// 指定した1話のダウンロード本文と挿絵を削除する。
+  ///
+  /// 既読状態と履歴には影響しません。
+  Future<void> deleteDownloadedEpisode({
+    required String workId,
+    required int episodeNo,
+    required Site site,
+  }) async {
+    await illustrationStorageService.deleteEpisode(
+      siteKey: site.name,
+      workId: workId,
+      episodeNo: episodeNo,
+    );
+
+    final keys = _downloadBox.keys.where((key) {
+      final download = _downloadBox.get(key);
+
+      return download?.workId == workId && download?.episodeNo == episodeNo;
+    }).toList();
+
+    for (final key in keys) {
+      await _downloadBox.delete(key);
     }
   }
 

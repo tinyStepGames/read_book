@@ -86,16 +86,11 @@ class _SearchPaginationBar extends StatelessWidget {
           width: double.infinity,
 
           // iPhoneの横幅に収まるよう、左右の余白を小さくします。
-          padding: const EdgeInsets.symmetric(
-            horizontal: 8,
-            vertical: 8,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
           decoration: BoxDecoration(
             border: Border(
               top: BorderSide(
-                color: Theme.of(
-                  context,
-                ).dividerColor.withValues(alpha: 0.4),
+                color: Theme.of(context).dividerColor.withValues(alpha: 0.4),
               ),
             ),
           ),
@@ -113,16 +108,11 @@ class _SearchPaginationBar extends StatelessWidget {
                         : null,
                     style: ElevatedButton.styleFrom(
                       minimumSize: Size.zero,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
                     ),
                     child: const FittedBox(
                       fit: BoxFit.scaleDown,
-                      child: Text(
-                        '前のページ',
-                        maxLines: 1,
-                      ),
+                      child: Text('前のページ', maxLines: 1),
                     ),
                   ),
                 ),
@@ -151,39 +141,32 @@ class _SearchPaginationBar extends StatelessWidget {
                       ),
                     ),
                     selectedItemBuilder: (context) {
-                      return List<Widget>.generate(
-                        maxPage,
-                        (index) {
-                          final page = index + 1;
-
-                          return Align(
-                            alignment: Alignment.centerLeft,
-                            child: FittedBox(
-                              fit: BoxFit.scaleDown,
-                              child: Text(
-                                '$page ページ',
-                                maxLines: 1,
-                              ),
-                            ),
-                          );
-                        },
-                      );
-                    },
-                    items: List<DropdownMenuItem<int>>.generate(
-                      maxPage,
-                      (index) {
+                      return List<Widget>.generate(maxPage, (index) {
                         final page = index + 1;
 
-                        return DropdownMenuItem<int>(
-                          value: page,
-                          child: Text(
-                            '$page ページ',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                        return Align(
+                          alignment: Alignment.centerLeft,
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text('$page ページ', maxLines: 1),
                           ),
                         );
-                      },
-                    ),
+                      });
+                    },
+                    items: List<DropdownMenuItem<int>>.generate(maxPage, (
+                      index,
+                    ) {
+                      final page = index + 1;
+
+                      return DropdownMenuItem<int>(
+                        value: page,
+                        child: Text(
+                          '$page ページ',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      );
+                    }),
                     onChanged: isLoading
                         ? null
                         : (page) {
@@ -209,16 +192,11 @@ class _SearchPaginationBar extends StatelessWidget {
                         : null,
                     style: ElevatedButton.styleFrom(
                       minimumSize: Size.zero,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
                     ),
                     child: const FittedBox(
                       fit: BoxFit.scaleDown,
-                      child: Text(
-                        '次のページ',
-                        maxLines: 1,
-                      ),
+                      child: Text('次のページ', maxLines: 1),
                     ),
                   ),
                 ),
@@ -230,7 +208,6 @@ class _SearchPaginationBar extends StatelessWidget {
     );
   }
 }
-
 
 class _SearchScreenState extends State<SearchScreen> {
   final NarouApiClient _narouApiClient = NarouApiClient();
@@ -701,7 +678,7 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Future<void> _deleteDownload(NarouSearchResult result) async {
-    await widget.repository.deleteAllDownloads(result.ncode);
+    await widget.repository.deleteAllDownloads(result.ncode, site: result.site);
 
     if (!mounted) {
       return;

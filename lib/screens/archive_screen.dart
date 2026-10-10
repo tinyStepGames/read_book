@@ -611,9 +611,7 @@ class SiteArchiveScreen extends StatelessWidget {
 
     if (confirmed != true) return;
 
-    for (final entry in targetEntries) {
-      await box.delete(entry.key);
-    }
+    await repository.deleteAllDownloads(work.workId, site: site);
 
     if (!context.mounted) return;
 
@@ -635,10 +633,7 @@ class SiteArchiveScreen extends StatelessWidget {
               onPressed: () {
                 Navigator.of(popupContext).pop(_WorkMenuAction.openWorkDetail);
               },
-              child: _buildActionLabel(
-                CupertinoIcons.book,
-                '作品ページを開く',
-              ),
+              child: _buildActionLabel(CupertinoIcons.book, '作品ページを開く'),
             ),
             CupertinoActionSheetAction(
               onPressed: () {
@@ -1254,18 +1249,11 @@ class _DownloadedWorkScreenState extends State<DownloadedWorkScreen> {
     );
     if (confirmed != true) return;
 
-    final box = Hive.box<Download>('downloads');
-
-    final targetEntries = box.toMap().entries.where((entry) {
-      final value = entry.value;
-
-      return value.workId == download.workId &&
-          value.episodeNo == download.episodeNo;
-    }).toList();
-
-    for (final entry in targetEntries) {
-      await box.delete(entry.key);
-    }
+    await repository.deleteDownloadedEpisode(
+      workId: download.workId,
+      episodeNo: download.episodeNo,
+      site: _siteOfWork(),
+    );
 
     if (!context.mounted) return;
 
