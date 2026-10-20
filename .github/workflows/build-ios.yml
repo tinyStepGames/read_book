@@ -5,11 +5,11 @@ on:
 
 jobs:
   build-ios:
-    runs-on: macos-15
+    runs-on: macos-15-intel
 
     steps:
       - name: Checkout source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -38,7 +38,7 @@ jobs:
           rm -rf Payload
 
       - name: Upload IPA
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: read-book-ipa
           path: read_book.ipa
