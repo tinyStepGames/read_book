@@ -61,7 +61,7 @@ class DecoratedNovelText extends StatelessWidget {
       final fragment = html_parser.parseFragment(section);
       final spans = _buildNodes(fragment.nodes, bodyStyle);
 
-      return SelectionArea(
+      return SelectionContainer.disabled(
         child: RichText(
           text: TextSpan(style: bodyStyle, children: spans),
         ),
@@ -72,7 +72,7 @@ class DecoratedNovelText extends StatelessWidget {
     //
     // RichText内の罫線文字ではなく、ブロック間に本物のDividerを
     // 配置するため、画面幅が狭くなっても折り返されません。
-    return SelectionArea(
+    return SelectionContainer.disabled(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

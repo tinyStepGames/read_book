@@ -86,6 +86,21 @@ void main() {
     PaintingBinding.instance.imageCache.clearLiveImages();
   });
 
+  testWidgets('装飾本文では文字選択を無効化する', (tester) async {
+    const body =
+        '${NovelBodyCodec.prefix}'
+        '<ruby>親文字<rt>ルビ</rt></ruby>'
+        '<em data-novel-emphasis="dot">傍点</em>';
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: DecoratedNovelText(body: body, fontSize: 16)),
+      ),
+    );
+
+    expect(find.byType(RichText), findsWidgets);
+    expect(find.byType(SelectionArea), findsNothing);
+  });
   testWidgets('従来のプレーン本文をそのまま表示する', (tester) async {
     await tester.pumpWidget(
       const MaterialApp(
