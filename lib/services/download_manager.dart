@@ -1,12 +1,14 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
 import '../models/download_job.dart';
 import '../models/work.dart';
 import 'background_download_service.dart';
+import 'download_batch_tracker.dart';
 import 'novel_repository.dart';
 
 class DownloadProgress {
@@ -156,6 +158,14 @@ class DownloadManager {
     }).toList();
 
     if (undownloaded.isEmpty) {
+      final existingJob = _jobBox.get(work.workId);
+
+      if (existingJob != null && !existingJob.isCompleted) {
+        existingJob.doneCount = existingJob.totalCount;
+        existingJob.isCompleted = true;
+        await existingJob.save();
+      }
+
       return false;
     }
 
@@ -207,51 +217,88 @@ class DownloadManager {
       return;
     }
 
-    for (var index = 0; index < episodeList.length; index++) {
-      final entry = episodeList[index];
-      final episodeNo = int.tryParse(entry['episodeNo'] ?? '') ?? index + 1;
-      final title = entry['title'] ?? '第$episodeNo話';
+    final tracker = DownloadBatchTracker(total: episodeList.length);
 
-      final publishedAt =
-          entry['publishedAt'] ??
-          entry['update'] ??
-          entry['published'] ??
-          entry['updatedAt'] ??
-          '';
+    try {
+      for (var index = 0; index < episodeList.length; index++) {
+        final entry = episodeList[index];
+        final episodeNo = int.tryParse(entry['episodeNo'] ?? '') ?? index + 1;
+        final title = entry['title'] ?? '第$episodeNo話';
 
-      if (!_repository.isDownloaded(work, episodeNo)) {
-        try {
-          await _repository.downloadEpisode(
-            work: work,
-            episodeNo: episodeNo,
-            episodeTitle: title,
-            publishedAt: publishedAt,
-          );
-        } catch (_) {
-          // 個別話の失敗は無視して次の話へ進みます。
+        final publishedAt =
+            entry['publishedAt'] ??
+            entry['update'] ??
+            entry['published'] ??
+            entry['updatedAt'] ??
+            '';
+
+        var succeeded = false;
+
+        if (!_repository.isDownloaded(work, episodeNo)) {
+          try {
+            await _repository.downloadEpisode(
+              work: work,
+              episodeNo: episodeNo,
+              episodeTitle: title,
+              publishedAt: publishedAt,
+            );
+
+            succeeded = _repository.isDownloaded(work, episodeNo);
+          } catch (error, stackTrace) {
+            debugPrint('第$episodeNo話のダウンロードに失敗しました: $error');
+            debugPrintStack(stackTrace: stackTrace);
+          }
+
+          await Future<void>.delayed(const Duration(milliseconds: 800));
+        } else {
+          try {
+            if (publishedAt.trim().isNotEmpty) {
+              await _repository.updateDownloadPublishedDate(
+                work: work,
+                episodeNo: episodeNo,
+                publishedAt: publishedAt,
+              );
+            }
+
+            succeeded = true;
+          } catch (error, stackTrace) {
+            debugPrint('第$episodeNo話の公開日更新に失敗しました: $error');
+            debugPrintStack(stackTrace: stackTrace);
+          }
         }
 
-        await Future<void>.delayed(const Duration(milliseconds: 800));
-      } else if (publishedAt.trim().isNotEmpty) {
-        await _repository.updateDownloadPublishedDate(
-          work: work,
-          episodeNo: episodeNo,
-          publishedAt: publishedAt,
-        );
+        if (succeeded) {
+          tracker.recordSuccess();
+        } else {
+          tracker.recordFailure();
+        }
+
+        active.done = tracker.succeeded;
+        job.doneCount = tracker.succeeded;
+        job.isCompleted = false;
+
+        await job.save();
+        _emit(work.workId);
       }
 
-      active.done = index + 1;
-      job.doneCount = active.done;
-
+      job.isCompleted = tracker.isCompleted;
       await job.save();
+    } catch (error, stackTrace) {
+      debugPrint('一括ダウンロード処理に失敗しました: $error');
+      debugPrintStack(stackTrace: stackTrace);
+
+      job.isCompleted = false;
+
+      try {
+        await job.save();
+      } catch (saveError, saveStackTrace) {
+        debugPrint('未完了ジョブの保存に失敗しました: $saveError');
+        debugPrintStack(stackTrace: saveStackTrace);
+      }
+    } finally {
+      _active.remove(work.workId);
       _emit(work.workId);
     }
-
-    job.isCompleted = true;
-    await job.save();
-
-    _active.remove(work.workId);
-    _emit(work.workId);
   }
 
   void _handleBackgroundProgress(
