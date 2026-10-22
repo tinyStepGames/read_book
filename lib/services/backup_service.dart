@@ -213,15 +213,21 @@ class BackupService {
   Future<void> createAndShareBackup({required Rect sharePositionOrigin}) async {
     final backupFile = await createBackupFile();
 
-    await SharePlus.instance.share(
-      ShareParams(
-        files: [XFile(backupFile.path)],
-        subject: 'Read Book バックアップ',
-        title: 'Read Book バックアップ',
-        text: 'Read Bookのバックアップファイルです。',
-        sharePositionOrigin: sharePositionOrigin,
-      ),
-    );
+    try {
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(backupFile.path)],
+          subject: 'Read Book バックアップ',
+          title: 'Read Book バックアップ',
+          text: 'Read Bookのバックアップファイルです。',
+          sharePositionOrigin: sharePositionOrigin,
+        ),
+      );
+    } finally {
+      if (await backupFile.exists()) {
+        await backupFile.delete();
+      }
+    }
   }
 
   /// 「ファイル」アプリなどからバックアップZIPを選択し、
