@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 
-import 'package:archive/archive.dart';
+import 'package:archive/archive_io.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -92,7 +92,14 @@ class BackupService {
   /// Application Support内の挿絵ファイルをZIPへ追加します。
   ///
   /// ZIP内ではOSに依存しない「/」区切りの相対パスを使用します。
-  Future<void> _addIllustrationsToArchive(Archive archive) async {
+  /// Application Support内の挿絵ファイルをZIPへ追加します。
+  ///
+  /// ZIP内ではOSに依存しない「/」区切りの相対パスを使用します。
+  Future<void> _addIllustrationsToZip({
+    required ZipFileEncoder encoder,
+    required File outputFile,
+    required _BackupBuildBudget budget,
+  }) async {
     final supportDirectory = await getApplicationSupportDirectory();
     final illustrationDirectory = Directory(
       '${supportDirectory.path}'
@@ -127,11 +134,18 @@ class BackupService {
         continue;
       }
 
-      final bytes = await entity.readAsBytes();
+      final archiveName = 'illustrations/$relativePath';
+      final fileSize = await entity.length();
 
-      archive.addFile(
-        ArchiveFile('illustrations/$relativePath', bytes.length, bytes),
+      budget.addFile(
+        name: archiveName,
+        size: fileSize,
+        maximumFileBytes: _maximumIllustrationBytes,
       );
+
+      await encoder.addFile(entity, archiveName);
+
+      _validateBackupArchiveSize(await outputFile.length(), allowEmpty: true);
     }
   }
 
@@ -140,7 +154,6 @@ class BackupService {
     await _flushAllBoxes();
 
     final hiveFiles = _getHiveFiles();
-    final archive = Archive();
 
     final manifest = <String, dynamic>{
       'format': _backupFormat,
@@ -153,33 +166,6 @@ class BackupService {
     final manifestBytes = utf8.encode(
       const JsonEncoder.withIndent('  ').convert(manifest),
     );
-
-    archive.addFile(
-      ArchiveFile('manifest.json', manifestBytes.length, manifestBytes),
-    );
-
-    for (final boxName in _boxNames) {
-      final hiveFile = hiveFiles[boxName];
-
-      if (hiveFile == null || !await hiveFile.exists()) {
-        throw FileSystemException(
-          'Hiveファイルが見つかりません。',
-          hiveFile?.path ?? boxName,
-        );
-      }
-
-      final bytes = await hiveFile.readAsBytes();
-
-      archive.addFile(ArchiveFile('hive/$boxName.hive', bytes.length, bytes));
-    }
-
-    await _addIllustrationsToArchive(archive);
-
-    final zipBytes = ZipEncoder().encode(archive);
-
-    if (zipBytes == null) {
-      throw StateError('バックアップZIPの作成に失敗しました。');
-    }
 
     final temporaryDirectory = await getTemporaryDirectory();
     final backupDirectory = Directory(
@@ -202,9 +188,112 @@ class BackupService {
       '${backupDirectory.path}${Platform.pathSeparator}$fileName',
     );
 
-    await backupFile.writeAsBytes(zipBytes, flush: true);
+    final temporaryFile = File('${backupFile.path}.tmp');
 
-    return backupFile;
+    if (await temporaryFile.exists()) {
+      await temporaryFile.delete();
+    }
+
+    if (await backupFile.exists()) {
+      await backupFile.delete();
+    }
+
+    final budget = _BackupBuildBudget(
+      maximumEntries: _maximumBackupEntries,
+      maximumExpandedBytes: _maximumBackupExpandedBytes,
+    );
+
+    final encoder = ZipFileEncoder();
+    var encoderCreated = false;
+    var encoderClosed = false;
+
+    try {
+      encoder.create(temporaryFile.path);
+      encoderCreated = true;
+
+      budget.addFile(
+        name: 'manifest.json',
+        size: manifestBytes.length,
+        maximumFileBytes: _maximumManifestBytes,
+      );
+
+      encoder.addArchiveFile(
+        ArchiveFile('manifest.json', manifestBytes.length, manifestBytes),
+      );
+
+      _validateBackupArchiveSize(
+        await temporaryFile.length(),
+        allowEmpty: true,
+      );
+
+      for (final boxName in _boxNames) {
+        final hiveFile = hiveFiles[boxName];
+
+        if (hiveFile == null || !await hiveFile.exists()) {
+          throw FileSystemException(
+            'Hiveファイルが見つかりません。',
+            hiveFile?.path ?? boxName,
+          );
+        }
+
+        final archiveName = 'hive/$boxName.hive';
+        final fileSize = await hiveFile.length();
+
+        budget.addFile(
+          name: archiveName,
+          size: fileSize,
+          maximumFileBytes: _maximumHiveFileBytes,
+        );
+
+        await encoder.addFile(hiveFile, archiveName);
+
+        _validateBackupArchiveSize(
+          await temporaryFile.length(),
+          allowEmpty: true,
+        );
+      }
+
+      await _addIllustrationsToZip(
+        encoder: encoder,
+        outputFile: temporaryFile,
+        budget: budget,
+      );
+
+      await encoder.close();
+      encoderClosed = true;
+
+      _validateBackupArchiveSize(await temporaryFile.length());
+
+      await temporaryFile.rename(backupFile.path);
+
+      return backupFile;
+    } catch (_) {
+      if (encoderCreated && !encoderClosed) {
+        try {
+          await encoder.close();
+        } catch (_) {
+          // 不完全ZIPはこの後削除するため、close失敗は無視します。
+        }
+      }
+
+      if (await temporaryFile.exists()) {
+        try {
+          await temporaryFile.delete();
+        } catch (_) {
+          // 元の例外を優先します。
+        }
+      }
+
+      if (await backupFile.exists()) {
+        try {
+          await backupFile.delete();
+        } catch (_) {
+          // 元の例外を優先します。
+        }
+      }
+
+      rethrow;
+    }
   }
 
   /// バックアップZIPを作成し、iOSの共有画面を開きます。
@@ -738,8 +827,9 @@ class BackupService {
   static void _validateBackupArchiveSize(
     int size, {
     int maximumBytes = _maximumBackupArchiveBytes,
+    bool allowEmpty = false,
   }) {
-    if (size <= 0 || size > maximumBytes) {
+    if (size < 0 || (!allowEmpty && size == 0) || size > maximumBytes) {
       throw FormatException('バックアップZIPの容量が不正です: $size バイト');
     }
   }
@@ -754,6 +844,50 @@ class BackupService {
     }
 
     throw const FormatException('バックアップ内のデータを読み込めませんでした。');
+  }
+}
+
+class _BackupBuildBudget {
+  _BackupBuildBudget({
+    required this.maximumEntries,
+    required this.maximumExpandedBytes,
+  });
+
+  final int maximumEntries;
+  final int maximumExpandedBytes;
+
+  int _entryCount = 0;
+  int _expandedBytes = 0;
+
+  void addFile({
+    required String name,
+    required int size,
+    required int maximumFileBytes,
+  }) {
+    if (size < 0 || size > maximumFileBytes) {
+      throw StateError(
+        'バックアップ対象ファイルの容量が上限を超えています: '
+        '$name ($size バイト)',
+      );
+    }
+
+    _entryCount++;
+
+    if (_entryCount > maximumEntries) {
+      throw StateError(
+        'バックアップ対象ファイル数が上限を超えています: '
+        '$_entryCount 件',
+      );
+    }
+
+    _expandedBytes += size;
+
+    if (_expandedBytes > maximumExpandedBytes) {
+      throw StateError(
+        'バックアップ対象の合計容量が上限を超えています: '
+        '$_expandedBytes バイト',
+      );
+    }
   }
 }
 
