@@ -4,8 +4,35 @@ import '../models/site.dart';
 class RemoteResourcePolicy {
   RemoteResourcePolicy._();
 
+  /// 外部サイトから受け入れる1レスポンスの最大容量です。
+  static const int maximumExternalResponseBytes = 8 * 1024 * 1024;
+
   /// 1話分のHTMLとして受け入れる最大容量です。
-  static const int maximumEpisodeHtmlBytes = 8 * 1024 * 1024;
+  static const int maximumEpisodeHtmlBytes = maximumExternalResponseBytes;
+
+  /// 通常通信で利用するHTTPS URLを検証します。
+  ///
+  /// 許可ホスト、HTTPS、ユーザー情報、明示的ポートを確認します。
+  static bool isAllowedExternalUri({
+    required Uri uri,
+    required Set<String> allowedHosts,
+    bool allowRootPath = true,
+  }) {
+    if (uri.scheme.toLowerCase() != 'https' ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty ||
+        (uri.hasPort && uri.port != 443)) {
+      return false;
+    }
+
+    if (!allowRootPath && (uri.path.isEmpty || uri.path == '/')) {
+      return false;
+    }
+
+    final host = uri.host.toLowerCase();
+
+    return allowedHosts.any((allowedHost) => allowedHost.toLowerCase() == host);
+  }
 
   /// 話URLを検証し、安全なHTTPS URLへ正規化します。
   ///
@@ -23,13 +50,7 @@ class RemoteResourcePolicy {
 
     final uri = Uri.tryParse(value);
 
-    if (uri == null ||
-        uri.scheme.toLowerCase() != 'https' ||
-        uri.host.isEmpty ||
-        uri.userInfo.isNotEmpty ||
-        (uri.hasPort && uri.port != 443) ||
-        uri.path.isEmpty ||
-        uri.path == '/') {
+    if (uri == null) {
       return null;
     }
 
@@ -38,11 +59,15 @@ class RemoteResourcePolicy {
       Site.kakuyomu => 'kakuyomu.jp',
     };
 
-    final host = uri.host.toLowerCase();
-
-    if (host != expectedHost) {
+    if (!isAllowedExternalUri(
+      uri: uri,
+      allowedHosts: {expectedHost},
+      allowRootPath: false,
+    )) {
       return null;
     }
+
+    final host = uri.host.toLowerCase();
 
     return uri.replace(scheme: 'https', host: host).removeFragment();
   }
