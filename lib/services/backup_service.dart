@@ -328,7 +328,7 @@ class BackupService {
       type: FileType.custom,
       allowedExtensions: ['zip'],
       allowMultiple: false,
-      withData: true,
+      withData: false,
     );
 
     if (result == null || result.files.isEmpty) {
@@ -336,25 +336,19 @@ class BackupService {
     }
 
     final selectedFile = result.files.single;
+    final selectedPath = selectedFile.path;
+
+    if (selectedPath == null || selectedPath.trim().isEmpty) {
+      throw const FormatException('選択したバックアップファイルを読み込めませんでした。');
+    }
 
     _validateBackupArchiveSize(selectedFile.size);
 
-    Uint8List bytes;
+    final sourceFile = File(selectedPath);
 
-    if (selectedFile.bytes != null) {
-      bytes = selectedFile.bytes!;
-    } else {
-      final path = selectedFile.path;
-
-      if (path == null || path.trim().isEmpty) {
-        throw const FormatException('選択したバックアップファイルを読み込めませんでした。');
-      }
-
-      bytes = await File(path).readAsBytes();
+    if (!await sourceFile.exists()) {
+      throw const FormatException('選択したバックアップファイルを読み込めませんでした。');
     }
-
-    // 保存する前にバックアップの形式を検証します。
-    _readAndValidateBackup(bytes);
 
     final supportDirectory = await getApplicationSupportDirectory();
     await supportDirectory.create(recursive: true);
@@ -371,15 +365,27 @@ class BackupService {
       await temporaryFile.delete();
     }
 
-    await temporaryFile.writeAsBytes(bytes, flush: true);
+    try {
+      await sourceFile.openRead().pipe(temporaryFile.openWrite());
 
-    if (await pendingFile.exists()) {
-      await pendingFile.delete();
+      final copiedSize = await temporaryFile.length();
+      _validateBackupArchiveSize(copiedSize);
+
+      await _validateBackupFile(temporaryFile);
+
+      if (await pendingFile.exists()) {
+        await pendingFile.delete();
+      }
+
+      await temporaryFile.rename(pendingFile.path);
+      return true;
+    } catch (_) {
+      if (await temporaryFile.exists()) {
+        await temporaryFile.delete();
+      }
+
+      rethrow;
     }
-
-    await temporaryFile.rename(pendingFile.path);
-
-    return true;
   }
 
   /// 次回起動時に保留中のバックアップを復元します。
@@ -399,7 +405,7 @@ class BackupService {
     }
 
     Directory? rollbackDirectory;
-    Directory? stagedIllustrationDirectory;
+    Directory? stagedRestoreDirectory;
     Directory? illustrationDirectory;
     var illustrationsChanged = false;
 
@@ -407,12 +413,19 @@ class BackupService {
       final pendingSize = await pendingFile.length();
       _validateBackupArchiveSize(pendingSize);
 
-      final backupBytes = await pendingFile.readAsBytes();
-      final restoredFiles = _readAndValidateBackup(backupBytes);
-
       final documentsDirectory = await getApplicationDocumentsDirectory();
-
       final timestamp = DateTime.now().millisecondsSinceEpoch;
+
+      stagedRestoreDirectory = Directory(
+        '${supportDirectory.path}'
+        '${Platform.pathSeparator}'
+        'restore_staged_$timestamp',
+      );
+
+      final stagedFiles = await _extractAndValidateBackupFile(
+        pendingFile,
+        stagedRestoreDirectory,
+      );
 
       rollbackDirectory = Directory(
         '${supportDirectory.path}'
@@ -445,39 +458,16 @@ class BackupService {
         '${IllustrationStorageService.directoryName}',
       );
 
-      stagedIllustrationDirectory = Directory(
-        '${supportDirectory.path}'
-        '${Platform.pathSeparator}'
-        'restore_staged_illustrations_$timestamp',
-      );
-
-      if (await stagedIllustrationDirectory.exists()) {
-        await stagedIllustrationDirectory.delete(recursive: true);
-      }
-
-      await stagedIllustrationDirectory.create(recursive: true);
-
-      for (final entry in restoredFiles.illustrationFiles.entries) {
-        final relativePlatformPath = entry.key
-            .split('/')
-            .join(Platform.pathSeparator);
-
-        final targetFile = File(
-          '${stagedIllustrationDirectory.path}'
-          '${Platform.pathSeparator}'
-          '$relativePlatformPath',
-        );
-
-        await targetFile.parent.create(recursive: true);
-        await targetFile.writeAsBytes(entry.value, flush: true);
-      }
-
       try {
-        // バックアップ内のHiveファイルを配置します。
+        // ステージング済みHiveファイルを配置します。
         for (final boxName in _boxNames) {
-          final bytes = restoredFiles.hiveFiles[boxName];
+          final stagedFile = File(
+            '${stagedFiles.hiveDirectory.path}'
+            '${Platform.pathSeparator}'
+            '$boxName.hive',
+          );
 
-          if (bytes == null) {
+          if (!await stagedFile.exists()) {
             throw FormatException('バックアップ内に $boxName のデータがありません。');
           }
 
@@ -493,7 +483,7 @@ class BackupService {
             await temporaryFile.delete();
           }
 
-          await temporaryFile.writeAsBytes(bytes, flush: true);
+          await stagedFile.copy(temporaryFile.path);
 
           if (await targetFile.exists()) {
             await targetFile.delete();
@@ -516,7 +506,9 @@ class BackupService {
           );
         }
 
-        await stagedIllustrationDirectory.rename(illustrationDirectory.path);
+        await stagedFiles.illustrationDirectory.rename(
+          illustrationDirectory.path,
+        );
       } catch (_) {
         // 復元途中で失敗した場合は元のファイルへ戻します。
         for (final boxName in _boxNames) {
@@ -568,6 +560,10 @@ class BackupService {
         await rollbackDirectory.delete(recursive: true);
       }
 
+      if (await stagedRestoreDirectory.exists()) {
+        await stagedRestoreDirectory.delete(recursive: true);
+      }
+
       return 'バックアップからデータを復元しました。';
     } catch (error) {
       final timestamp = DateTime.now().millisecondsSinceEpoch;
@@ -594,17 +590,298 @@ class BackupService {
         }
       }
 
-      if (stagedIllustrationDirectory != null &&
-          await stagedIllustrationDirectory.exists()) {
+      if (stagedRestoreDirectory != null &&
+          await stagedRestoreDirectory.exists()) {
         try {
-          await stagedIllustrationDirectory.delete(recursive: true);
+          await stagedRestoreDirectory.delete(recursive: true);
         } catch (_) {
-          // 一時挿絵フォルダーの削除失敗は無視します。
+          // 復元ステージングフォルダーの削除失敗は無視します。
         }
       }
 
       return 'バックアップの復元に失敗しました: $error';
     }
+  }
+
+  static Future<void> _validateBackupFile(File backupFile) async {
+    final archiveSize = await backupFile.length();
+    _validateBackupArchiveSize(archiveSize);
+
+    final input = InputFileStream(backupFile.path);
+
+    try {
+      final archive = _decodeBackupInput(input);
+      _validateFileArchive(archive);
+    } finally {
+      await input.close();
+    }
+  }
+
+  static Future<_StagedBackupFiles> _extractAndValidateBackupFile(
+    File backupFile,
+    Directory stagingDirectory,
+  ) async {
+    final archiveSize = await backupFile.length();
+    _validateBackupArchiveSize(archiveSize);
+
+    if (await stagingDirectory.exists()) {
+      await stagingDirectory.delete(recursive: true);
+    }
+
+    await stagingDirectory.create(recursive: true);
+
+    final input = InputFileStream(backupFile.path);
+
+    try {
+      final archive = _decodeBackupInput(input);
+      final layout = _validateFileArchive(archive);
+
+      final hiveDirectory = Directory(
+        '${stagingDirectory.path}'
+        '${Platform.pathSeparator}'
+        'hive',
+      );
+
+      final illustrationDirectory = Directory(
+        '${stagingDirectory.path}'
+        '${Platform.pathSeparator}'
+        'illustrations',
+      );
+
+      await hiveDirectory.create(recursive: true);
+      await illustrationDirectory.create(recursive: true);
+
+      for (final entry in layout.hiveFiles.entries) {
+        final targetFile = File(
+          '${hiveDirectory.path}'
+          '${Platform.pathSeparator}'
+          '${entry.key}.hive',
+        );
+
+        await _writeArchiveFile(entry.value, targetFile);
+      }
+
+      for (final entry in layout.illustrationFiles.entries) {
+        final relativePlatformPath = entry.key
+            .split('/')
+            .join(Platform.pathSeparator);
+
+        final targetFile = File(
+          '${illustrationDirectory.path}'
+          '${Platform.pathSeparator}'
+          '$relativePlatformPath',
+        );
+
+        await targetFile.parent.create(recursive: true);
+        await _writeArchiveFile(entry.value, targetFile);
+      }
+
+      return _StagedBackupFiles(
+        hiveDirectory: hiveDirectory,
+        illustrationDirectory: illustrationDirectory,
+      );
+    } catch (_) {
+      if (await stagingDirectory.exists()) {
+        await stagingDirectory.delete(recursive: true);
+      }
+
+      rethrow;
+    } finally {
+      await input.close();
+    }
+  }
+
+  static Archive _decodeBackupInput(InputFileStream input) {
+    try {
+      return ZipDecoder().decodeBuffer(input);
+    } catch (error) {
+      throw FormatException('ZIPファイルを開けませんでした: $error');
+    }
+  }
+
+  static _ArchiveFileLayout _validateFileArchive(
+    Archive archive, {
+    int maximumEntries = _maximumBackupEntries,
+    int maximumExpandedBytes = _maximumBackupExpandedBytes,
+    int maximumManifestBytes = _maximumManifestBytes,
+    int maximumHiveFileBytes = _maximumHiveFileBytes,
+    int maximumIllustrationBytes = _maximumIllustrationBytes,
+  }) {
+    if (archive.files.length > maximumEntries) {
+      throw FormatException(
+        'バックアップ内のファイル数が上限を超えています: '
+        '${archive.files.length} 件',
+      );
+    }
+
+    var expandedBytes = 0;
+
+    for (final file in archive.files) {
+      if (!file.isFile) {
+        continue;
+      }
+
+      if (file.size < 0) {
+        throw FormatException('バックアップ内のファイル容量が不正です: ${file.name}');
+      }
+
+      expandedBytes += file.size;
+
+      if (expandedBytes > maximumExpandedBytes) {
+        throw FormatException(
+          'バックアップの展開後容量が上限を超えています: '
+          '$expandedBytes バイト',
+        );
+      }
+    }
+
+    final manifestFiles = archive.files
+        .where((file) => file.isFile && file.name == 'manifest.json')
+        .toList(growable: false);
+
+    if (manifestFiles.isEmpty) {
+      throw const FormatException('Read Bookのバックアップファイルではありません。');
+    }
+
+    if (manifestFiles.length != 1) {
+      throw const FormatException('バックアップ情報が複数含まれています。');
+    }
+
+    final manifestFile = manifestFiles.single;
+
+    if (manifestFile.size > maximumManifestBytes) {
+      throw FormatException(
+        'バックアップ情報の容量が上限を超えています: '
+        '${manifestFile.size} バイト',
+      );
+    }
+
+    final manifestBytes = _contentToBytes(manifestFile.content);
+    final manifestText = utf8.decode(manifestBytes);
+    final decodedManifest = jsonDecode(manifestText);
+
+    if (decodedManifest is! Map) {
+      throw const FormatException('バックアップ情報の形式が正しくありません。');
+    }
+
+    if (decodedManifest['format'] != _backupFormat) {
+      throw const FormatException('Read Bookのバックアップファイルではありません。');
+    }
+
+    final formatVersion = decodedManifest['formatVersion'];
+
+    if (formatVersion != _backupFormatVersion) {
+      throw FormatException(
+        '対応していないバックアップ形式です。'
+        ' バージョン: $formatVersion',
+      );
+    }
+
+    final hiveFiles = <String, ArchiveFile>{};
+
+    for (final boxName in _boxNames) {
+      final expectedName = 'hive/$boxName.hive';
+
+      final matches = archive.files
+          .where((file) => file.isFile && file.name == expectedName)
+          .toList(growable: false);
+
+      if (matches.isEmpty) {
+        throw FormatException('バックアップ内に $boxName のデータがありません。');
+      }
+
+      if (matches.length != 1) {
+        throw FormatException('バックアップ内に $boxName のデータが複数あります。');
+      }
+
+      final targetFile = matches.single;
+
+      if (targetFile.size > maximumHiveFileBytes) {
+        throw FormatException(
+          'バックアップ内の $boxName の容量が上限を超えています: '
+          '${targetFile.size} バイト',
+        );
+      }
+
+      hiveFiles[boxName] = targetFile;
+    }
+
+    final illustrationFiles = <String, ArchiveFile>{};
+
+    for (final file in archive.files) {
+      final name = file.name;
+
+      if (!name.startsWith('illustrations')) {
+        continue;
+      }
+
+      if (!file.isFile) {
+        continue;
+      }
+
+      final relativePath = _validateIllustrationEntryName(name);
+
+      if (illustrationFiles.containsKey(relativePath)) {
+        throw FormatException(
+          'バックアップ内に同じ挿絵ファイルが複数あります: '
+          '$relativePath',
+        );
+      }
+
+      if (file.size > maximumIllustrationBytes) {
+        throw FormatException(
+          'バックアップ内の挿絵容量が上限を超えています: '
+          '$relativePath (${file.size} バイト)',
+        );
+      }
+
+      illustrationFiles[relativePath] = file;
+    }
+
+    return _ArchiveFileLayout(
+      hiveFiles: hiveFiles,
+      illustrationFiles: illustrationFiles,
+    );
+  }
+
+  static Future<void> _writeArchiveFile(
+    ArchiveFile archiveFile,
+    File targetFile,
+  ) async {
+    if (await targetFile.exists()) {
+      await targetFile.delete();
+    }
+
+    await targetFile.parent.create(recursive: true);
+
+    final output = OutputFileStream(targetFile.path);
+
+    try {
+      archiveFile.writeContent(output);
+    } finally {
+      await output.close();
+    }
+
+    final writtenSize = await targetFile.length();
+
+    if (writtenSize != archiveFile.size) {
+      throw FormatException(
+        'バックアップ内のファイル容量が一致しません: '
+        '${archiveFile.name}',
+      );
+    }
+  }
+
+  /// テストでファイルベースの復元展開を確認するための入口です。
+  @visibleForTesting
+  static Future<void> extractBackupFileForTesting(
+    String backupPath,
+    String stagingPath,
+  ) async {
+    await _extractAndValidateBackupFile(
+      File(backupPath),
+      Directory(stagingPath),
+    );
   }
 
   /// ZIPを読み込み、正しいRead Bookバックアップか確認します。
@@ -889,6 +1166,26 @@ class _BackupBuildBudget {
       );
     }
   }
+}
+
+class _ArchiveFileLayout {
+  const _ArchiveFileLayout({
+    required this.hiveFiles,
+    required this.illustrationFiles,
+  });
+
+  final Map<String, ArchiveFile> hiveFiles;
+  final Map<String, ArchiveFile> illustrationFiles;
+}
+
+class _StagedBackupFiles {
+  const _StagedBackupFiles({
+    required this.hiveDirectory,
+    required this.illustrationDirectory,
+  });
+
+  final Directory hiveDirectory;
+  final Directory illustrationDirectory;
 }
 
 class _ValidatedBackup {
