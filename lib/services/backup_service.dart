@@ -29,6 +29,13 @@ class BackupService {
 
   static const String _pendingRestoreFileName = 'read_book_pending_restore.zip';
 
+  static const int _maximumBackupArchiveBytes = 512 * 1024 * 1024;
+  static const int _maximumBackupEntries = 50000;
+  static const int _maximumBackupExpandedBytes = 2 * 1024 * 1024 * 1024;
+  static const int _maximumManifestBytes = 64 * 1024;
+  static const int _maximumHiveFileBytes = 512 * 1024 * 1024;
+  static const int _maximumIllustrationBytes = 20 * 1024 * 1024;
+
   static const List<String> _boxNames = [
     'works',
     'episodes',
@@ -235,6 +242,8 @@ class BackupService {
 
     final selectedFile = result.files.single;
 
+    _validateBackupArchiveSize(selectedFile.size);
+
     Uint8List bytes;
 
     if (selectedFile.bytes != null) {
@@ -300,6 +309,9 @@ class BackupService {
     var illustrationsChanged = false;
 
     try {
+      final pendingSize = await pendingFile.length();
+      _validateBackupArchiveSize(pendingSize);
+
       final backupBytes = await pendingFile.readAsBytes();
       final restoredFiles = _readAndValidateBackup(backupBytes);
 
@@ -501,13 +513,54 @@ class BackupService {
   }
 
   /// ZIPを読み込み、正しいRead Bookバックアップか確認します。
-  static _ValidatedBackup _readAndValidateBackup(Uint8List zipBytes) {
+  static _ValidatedBackup _readAndValidateBackup(
+    Uint8List zipBytes, {
+    int maximumArchiveBytes = _maximumBackupArchiveBytes,
+    int maximumEntries = _maximumBackupEntries,
+    int maximumExpandedBytes = _maximumBackupExpandedBytes,
+    int maximumManifestBytes = _maximumManifestBytes,
+    int maximumHiveFileBytes = _maximumHiveFileBytes,
+    int maximumIllustrationBytes = _maximumIllustrationBytes,
+  }) {
+    _validateBackupArchiveSize(
+      zipBytes.length,
+      maximumBytes: maximumArchiveBytes,
+    );
+
     Archive archive;
 
     try {
       archive = ZipDecoder().decodeBytes(zipBytes);
     } catch (error) {
       throw FormatException('ZIPファイルを開けませんでした: $error');
+    }
+
+    if (archive.files.length > maximumEntries) {
+      throw FormatException(
+        'バックアップ内のファイル数が上限を超えています: '
+        '${archive.files.length} 件',
+      );
+    }
+
+    var expandedBytes = 0;
+
+    for (final file in archive.files) {
+      if (!file.isFile) {
+        continue;
+      }
+
+      if (file.size < 0) {
+        throw FormatException('バックアップ内のファイル容量が不正です: ${file.name}');
+      }
+
+      expandedBytes += file.size;
+
+      if (expandedBytes > maximumExpandedBytes) {
+        throw FormatException(
+          'バックアップの展開後容量が上限を超えています: '
+          '$expandedBytes バイト',
+        );
+      }
     }
 
     ArchiveFile? manifestFile;
@@ -521,6 +574,13 @@ class BackupService {
 
     if (manifestFile == null) {
       throw const FormatException('Read Bookのバックアップファイルではありません。');
+    }
+
+    if (manifestFile.size > maximumManifestBytes) {
+      throw FormatException(
+        'バックアップ情報の容量が上限を超えています: '
+        '${manifestFile.size} バイト',
+      );
     }
 
     final manifestBytes = _contentToBytes(manifestFile.content);
@@ -562,6 +622,13 @@ class BackupService {
         throw FormatException('バックアップ内に $boxName のデータがありません。');
       }
 
+      if (targetFile.size > maximumHiveFileBytes) {
+        throw FormatException(
+          'バックアップ内の $boxName の容量が上限を超えています: '
+          '${targetFile.size} バイト',
+        );
+      }
+
       hiveFiles[boxName] = _contentToBytes(targetFile.content);
     }
 
@@ -582,6 +649,13 @@ class BackupService {
 
       if (illustrationFiles.containsKey(relativePath)) {
         throw FormatException('バックアップ内に同じ挿絵ファイルが複数あります: $relativePath');
+      }
+
+      if (file.size > maximumIllustrationBytes) {
+        throw FormatException(
+          'バックアップ内の挿絵容量が上限を超えています: '
+          '$relativePath (${file.size} バイト)',
+        );
       }
 
       illustrationFiles[relativePath] = _contentToBytes(file.content);
@@ -623,6 +697,28 @@ class BackupService {
     return relativePath;
   }
 
+  /// テストでバックアップの容量制限を確認するための入口です。
+  @visibleForTesting
+  static void validateBackupForTesting(
+    Uint8List zipBytes, {
+    int maximumArchiveBytes = _maximumBackupArchiveBytes,
+    int maximumEntries = _maximumBackupEntries,
+    int maximumExpandedBytes = _maximumBackupExpandedBytes,
+    int maximumManifestBytes = _maximumManifestBytes,
+    int maximumHiveFileBytes = _maximumHiveFileBytes,
+    int maximumIllustrationBytes = _maximumIllustrationBytes,
+  }) {
+    _readAndValidateBackup(
+      zipBytes,
+      maximumArchiveBytes: maximumArchiveBytes,
+      maximumEntries: maximumEntries,
+      maximumExpandedBytes: maximumExpandedBytes,
+      maximumManifestBytes: maximumManifestBytes,
+      maximumHiveFileBytes: maximumHiveFileBytes,
+      maximumIllustrationBytes: maximumIllustrationBytes,
+    );
+  }
+
   /// テストでZIP検証結果を確認するための読み取り専用入口です。
   @visibleForTesting
   static Map<String, Uint8List> readIllustrationsForTesting(
@@ -631,6 +727,15 @@ class BackupService {
     return Map<String, Uint8List>.unmodifiable(
       _readAndValidateBackup(zipBytes).illustrationFiles,
     );
+  }
+
+  static void _validateBackupArchiveSize(
+    int size, {
+    int maximumBytes = _maximumBackupArchiveBytes,
+  }) {
+    if (size <= 0 || size > maximumBytes) {
+      throw FormatException('バックアップZIPの容量が不正です: $size バイト');
+    }
   }
 
   static Uint8List _contentToBytes(dynamic content) {

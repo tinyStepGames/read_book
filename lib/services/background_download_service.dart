@@ -9,6 +9,7 @@ import 'package:hive/hive.dart';
 import '../models/download_job.dart';
 import '../models/site.dart';
 import '../models/work.dart';
+import '../utils/remote_resource_policy.dart';
 import 'background_episode_parser.dart';
 import 'novel_repository.dart';
 
@@ -100,8 +101,14 @@ class BackgroundDownloadService {
       }
 
       final url = (entry['url'] ?? '').trim();
+      final site = Site.values[work.siteIndex];
 
-      if (url.isEmpty || Uri.tryParse(url)?.hasAbsolutePath != true) {
+      final episodeUri = RemoteResourcePolicy.normalizeEpisodeUri(
+        site: site,
+        source: url,
+      );
+
+      if (episodeUri == null) {
         continue;
       }
 
@@ -127,12 +134,10 @@ class BackgroundDownloadService {
         'publishedAt': publishedAt,
       });
 
-      final site = Site.values[work.siteIndex];
-
       tasks.add(
         DownloadTask(
           taskId: taskId,
-          url: url,
+          url: episodeUri.toString(),
           headers: site == Site.narou ? _narouHeaders : _kakuyomuHeaders,
           filename: '$taskId.html',
           directory: downloadDirectory,
@@ -235,6 +240,15 @@ class BackgroundDownloadService {
 
       if (!await file.exists()) {
         throw StateError('完了したHTMLファイルが見つかりません: $filePath');
+      }
+
+      final htmlBytes = await file.length();
+
+      if (htmlBytes <= 0 ||
+          htmlBytes > RemoteResourcePolicy.maximumEpisodeHtmlBytes) {
+        await file.delete();
+
+        throw StateError('取得したHTMLの容量が不正です: $htmlBytes バイト');
       }
 
       final html = await file.readAsString();
