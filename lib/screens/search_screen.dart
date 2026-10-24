@@ -20,12 +20,14 @@ class _SearchQuery {
   final bool authorNameOnly;
   final bool keywordOnly;
   final Site site;
+  final String? kakuyomuAuthorId;
 
   const _SearchQuery({
     required this.word,
     required this.authorNameOnly,
     required this.keywordOnly,
     required this.site,
+    required this.kakuyomuAuthorId,
   });
 }
 
@@ -232,6 +234,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   bool _authorNameOnly = false;
   bool _keywordOnly = false;
+  String? _kakuyomuAuthorId;
 
   Site _selectedSite = Site.narou;
 
@@ -309,6 +312,7 @@ class _SearchScreenState extends State<SearchScreen> {
     _keywordController.text = request.keyword;
     _authorNameOnly = request.authorNameOnly;
     _keywordOnly = request.keywordOnly;
+    _kakuyomuAuthorId = null;
 
     if (request.siteIndex >= 0 && request.siteIndex < Site.values.length) {
       _selectedSite = Site.values[request.siteIndex];
@@ -343,6 +347,7 @@ class _SearchScreenState extends State<SearchScreen> {
           authorNameOnly: _authorNameOnly,
           keywordOnly: _keywordOnly,
           site: searchSite,
+          kakuyomuAuthorId: _kakuyomuAuthorId,
         ),
       );
     }
@@ -378,6 +383,7 @@ class _SearchScreenState extends State<SearchScreen> {
           page: normalizedPage,
           authorNameOnly: _authorNameOnly,
           keywordOnly: _keywordOnly,
+          authorId: _kakuyomuAuthorId,
         );
       }
 
@@ -454,6 +460,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
     _authorNameOnly = false;
     _keywordOnly = false;
+    _kakuyomuAuthorId = null;
 
     _search(page: 1);
   }
@@ -473,6 +480,7 @@ class _SearchScreenState extends State<SearchScreen> {
     _authorNameOnly = previous.authorNameOnly;
     _keywordOnly = previous.keywordOnly;
     _selectedSite = previous.site;
+    _kakuyomuAuthorId = previous.kakuyomuAuthorId;
 
     _search(page: 1);
   }
@@ -486,6 +494,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
     _authorNameOnly = false;
     _keywordOnly = false;
+    _kakuyomuAuthorId = null;
 
     _history.clear();
 
@@ -504,6 +513,7 @@ class _SearchScreenState extends State<SearchScreen> {
       _history.clear();
       _authorNameOnly = false;
       _keywordOnly = false;
+      _kakuyomuAuthorId = null;
     });
 
     // カクヨムでキーワードが空の場合は、
@@ -597,7 +607,7 @@ class _SearchScreenState extends State<SearchScreen> {
     setState(() {});
   }
 
-  void _searchByAuthor(String author) {
+  void _searchByAuthor(String author, String authorId) {
     if (_isLoading) {
       return;
     }
@@ -605,6 +615,10 @@ class _SearchScreenState extends State<SearchScreen> {
     _keywordController.text = author;
     _authorNameOnly = true;
     _keywordOnly = false;
+    _kakuyomuAuthorId =
+        _selectedSite == Site.kakuyomu && authorId.trim().isNotEmpty
+        ? authorId.trim()
+        : null;
 
     _search(page: 1);
   }
@@ -926,6 +940,7 @@ class _SearchScreenState extends State<SearchScreen> {
                                 _keywordController.clear();
                                 _authorNameOnly = false;
                                 _keywordOnly = false;
+                                _kakuyomuAuthorId = null;
 
                                 // なろうは通常の空検索、
                                 // カクヨムは新着小説を取得します。

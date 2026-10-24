@@ -6,6 +6,7 @@ import 'package:html/parser.dart' as html_parser;
 
 import '../models/episode.dart';
 import '../models/site.dart';
+import '../utils/kakuyomu_author_search.dart';
 import '../utils/novel_body_codec.dart';
 import '../utils/remote_response_guard.dart';
 import '../utils/search_query_parser.dart';
@@ -77,6 +78,7 @@ class KakuyomuScraper {
     int page = 1,
     bool authorNameOnly = false,
     bool keywordOnly = false,
+    String? authorId,
   }) async {
     final parsedQuery = SearchQueryParser.parse(word);
 
@@ -86,19 +88,29 @@ class KakuyomuScraper {
 
     final isRecentWorks = word.trim().isEmpty;
     final normalizedPage = page < 1 ? 1 : page;
+    final normalizedAuthorId = authorId?.trim() ?? '';
+    final isDirectAuthorSearch =
+        authorNameOnly && normalizedAuthorId.isNotEmpty;
+
+    final requestUri = isDirectAuthorSearch
+        ? KakuyomuAuthorSearch.buildWorksUri(
+            authorId: normalizedAuthorId,
+            page: normalizedPage,
+          )
+        : null;
 
     final response = await _dio.get<String>(
-      isRecentWorks
-          ? 'https://kakuyomu.jp/recent_works'
-          : 'https://kakuyomu.jp/search',
-      queryParameters: <String, dynamic>{
-        if (!isRecentWorks) 'q': kakuyomuQuery,
-
-        // キーワード検索結果を作品の更新順にします。
-        if (!isRecentWorks) 'order': 'last_episode_published_at',
-
-        if (normalizedPage > 1) 'page': normalizedPage,
-      },
+      requestUri?.toString() ??
+          (isRecentWorks
+              ? 'https://kakuyomu.jp/recent_works'
+              : 'https://kakuyomu.jp/search'),
+      queryParameters: isDirectAuthorSearch
+          ? null
+          : <String, dynamic>{
+              if (!isRecentWorks) 'q': kakuyomuQuery,
+              if (!isRecentWorks) 'order': 'last_episode_published_at',
+              if (normalizedPage > 1) 'page': normalizedPage,
+            },
       options: Options(responseType: ResponseType.plain),
     );
 
@@ -151,15 +163,22 @@ class KakuyomuScraper {
         'a[href^="/users/"]',
       );
 
-      final author = _cleanText(authorAnchor?.text ?? '');
+      final parsedAuthor = _cleanText(authorAnchor?.text ?? '');
+      final author = parsedAuthor.isNotEmpty
+          ? parsedAuthor
+          : (isDirectAuthorSearch ? word.trim() : '');
 
       final authorHref = authorAnchor?.attributes['href'] ?? '';
 
-      final authorId = authorHref
+      final parsedAuthorId = authorHref
           .replaceFirst('/users/', '')
           .split('/')
           .first
           .trim();
+
+      final resultAuthorId = parsedAuthorId.isNotEmpty
+          ? parsedAuthorId
+          : (isDirectAuthorSearch ? normalizedAuthorId : '');
 
       final summary = _findSummary(container, workId, title);
 
@@ -186,6 +205,7 @@ class KakuyomuScraper {
           <String>[];
 
       if (authorNameOnly &&
+          !isDirectAuthorSearch &&
           !_matchesScopedSearch(value: author, query: parsedQuery)) {
         continue;
       }
@@ -246,7 +266,7 @@ class KakuyomuScraper {
         NarouSearchResult(
           title: title,
           ncode: workId,
-          authorId: authorId,
+          authorId: resultAuthorId,
           author: author,
           summary: summary,
           biggenre: bigGenreNumber,
