@@ -22,6 +22,7 @@ import 'services/backup_service.dart';
 import 'services/novel_repository.dart';
 import 'services/search_request_controller.dart';
 import 'services/download_manager.dart';
+import 'services/update_checker.dart';
 import 'models/download.dart';
 import 'models/read_mark.dart';
 import 'models/site.dart';
@@ -159,10 +160,13 @@ class RootScreen extends StatefulWidget {
   State<RootScreen> createState() => _RootScreenState();
 }
 
-class _RootScreenState extends State<RootScreen> {
+class _RootScreenState extends State<RootScreen> with WidgetsBindingObserver {
   final NovelRepository _repository = NovelRepository();
+  final UpdateChecker _updateChecker = UpdateChecker();
   final SearchRequestController _searchRequestController =
       SearchRequestController();
+
+  bool _isCheckingFavoriteUpdates = false;
   int _currentIndex = AppSessionService.selectedTab;
 
   late final List<Widget> _screens = [
@@ -233,10 +237,34 @@ class _RootScreenState extends State<RootScreen> {
     );
   }
 
+  Future<void> _checkFavoriteUpdates() async {
+    if (_isCheckingFavoriteUpdates) {
+      return;
+    }
+
+    _isCheckingFavoriteUpdates = true;
+
+    try {
+      await _updateChecker.checkAll();
+    } catch (error) {
+      AppLog.failure('お気に入り更新確認に失敗しました', error);
+    } finally {
+      _isCheckingFavoriteUpdates = false;
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_checkFavoriteUpdates());
+    }
+  }
+
   @override
   void initState() {
     super.initState();
 
+    WidgetsBinding.instance.addObserver(this);
     DownloadManager.init(_repository);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -245,6 +273,7 @@ class _RootScreenState extends State<RootScreen> {
       }
 
       _restoreLastReader();
+      unawaited(_checkFavoriteUpdates());
 
       final message = widget.startupMessage;
 
@@ -256,6 +285,12 @@ class _RootScreenState extends State<RootScreen> {
         SnackBar(content: Text(message), duration: const Duration(seconds: 5)),
       );
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
   }
 
   @override
