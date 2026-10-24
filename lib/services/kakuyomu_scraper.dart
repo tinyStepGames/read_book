@@ -1,13 +1,14 @@
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html_parser;
 
 import '../models/episode.dart';
 import '../models/site.dart';
+import '../utils/kakuyomu_author_search.dart';
 import '../utils/novel_body_codec.dart';
+import '../utils/remote_response_guard.dart';
 import '../utils/search_query_parser.dart';
 
 import 'narou_api_client.dart';
@@ -46,7 +47,9 @@ class KakuyomuScraper {
             'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
           },
         ),
-      );
+      ) {
+    RemoteResponseGuard.install(_dio, allowedHosts: const {'kakuyomu.jp'});
+  }
 
   final Dio _dio;
 
@@ -75,6 +78,7 @@ class KakuyomuScraper {
     int page = 1,
     bool authorNameOnly = false,
     bool keywordOnly = false,
+    String? authorId,
   }) async {
     final parsedQuery = SearchQueryParser.parse(word);
 
@@ -84,19 +88,29 @@ class KakuyomuScraper {
 
     final isRecentWorks = word.trim().isEmpty;
     final normalizedPage = page < 1 ? 1 : page;
+    final normalizedAuthorId = authorId?.trim() ?? '';
+    final isDirectAuthorSearch =
+        authorNameOnly && normalizedAuthorId.isNotEmpty;
+
+    final requestUri = isDirectAuthorSearch
+        ? KakuyomuAuthorSearch.buildWorksUri(
+            authorId: normalizedAuthorId,
+            page: normalizedPage,
+          )
+        : null;
 
     final response = await _dio.get<String>(
-      isRecentWorks
-          ? 'https://kakuyomu.jp/recent_works'
-          : 'https://kakuyomu.jp/search',
-      queryParameters: <String, dynamic>{
-        if (!isRecentWorks) 'q': kakuyomuQuery,
-
-        // キーワード検索結果を作品の更新順にします。
-        if (!isRecentWorks) 'order': 'last_episode_published_at',
-
-        if (normalizedPage > 1) 'page': normalizedPage,
-      },
+      requestUri?.toString() ??
+          (isRecentWorks
+              ? 'https://kakuyomu.jp/recent_works'
+              : 'https://kakuyomu.jp/search'),
+      queryParameters: isDirectAuthorSearch
+          ? null
+          : <String, dynamic>{
+              if (!isRecentWorks) 'q': kakuyomuQuery,
+              if (!isRecentWorks) 'order': 'last_episode_published_at',
+              if (normalizedPage > 1) 'page': normalizedPage,
+            },
       options: Options(responseType: ResponseType.plain),
     );
 
@@ -149,15 +163,22 @@ class KakuyomuScraper {
         'a[href^="/users/"]',
       );
 
-      final author = _cleanText(authorAnchor?.text ?? '');
+      final parsedAuthor = _cleanText(authorAnchor?.text ?? '');
+      final author = parsedAuthor.isNotEmpty
+          ? parsedAuthor
+          : (isDirectAuthorSearch ? word.trim() : '');
 
       final authorHref = authorAnchor?.attributes['href'] ?? '';
 
-      final authorId = authorHref
+      final parsedAuthorId = authorHref
           .replaceFirst('/users/', '')
           .split('/')
           .first
           .trim();
+
+      final resultAuthorId = parsedAuthorId.isNotEmpty
+          ? parsedAuthorId
+          : (isDirectAuthorSearch ? normalizedAuthorId : '');
 
       final summary = _findSummary(container, workId, title);
 
@@ -184,6 +205,7 @@ class KakuyomuScraper {
           <String>[];
 
       if (authorNameOnly &&
+          !isDirectAuthorSearch &&
           !_matchesScopedSearch(value: author, query: parsedQuery)) {
         continue;
       }
@@ -244,7 +266,7 @@ class KakuyomuScraper {
         NarouSearchResult(
           title: title,
           ncode: workId,
-          authorId: authorId,
+          authorId: resultAuthorId,
           author: author,
           summary: summary,
           biggenre: bigGenreNumber,
@@ -441,25 +463,9 @@ class KakuyomuScraper {
     try {
       final episodes = await _fetchEpisodeListFromApi(normalizedWorkId);
 
-      debugPrint(
-        'Kakuyomu API目次取得成功: '
-        'workId=$normalizedWorkId, episodes=${episodes.length}',
-      );
-
       return episodes;
-    } catch (error, stackTrace) {
-      debugPrint(
-        'Kakuyomu API目次取得失敗: '
-        'workId=$normalizedWorkId, error=$error',
-      );
-      debugPrintStack(stackTrace: stackTrace);
-
+    } catch (_) {
       final episodes = await _fetchEpisodeListFromHtml(normalizedWorkId);
-
-      debugPrint(
-        'Kakuyomu HTML目次取得: '
-        'workId=$normalizedWorkId, episodes=${episodes.length}',
-      );
 
       return episodes;
     }
@@ -481,14 +487,6 @@ class KakuyomuScraper {
 
     final data = _toJsonMap(response.data);
     final rawEpisodes = data['episodes'];
-
-    debugPrint(
-      'Kakuyomu API応答: '
-      'workId=$workId, '
-      'dataType=${response.data.runtimeType}, '
-      'episodesType=${rawEpisodes.runtimeType}, '
-      'episodesCount=${rawEpisodes is List ? rawEpisodes.length : 0}',
-    );
 
     if (rawEpisodes is! List) {
       throw StateError(
@@ -514,10 +512,6 @@ class KakuyomuScraper {
       final episodeId = _readEpisodeId(episodeData);
 
       if (episodeId.isEmpty) {
-        debugPrint(
-          'KakuyomuエピソードIDなし: '
-          '${episodeData.keys.join(', ')}',
-        );
         continue;
       }
 
@@ -598,15 +592,6 @@ class KakuyomuScraper {
     }
 
     _episodeIdCache[workId] = normalizedEpisodeIdMap;
-
-    debugPrint(
-      'Kakuyomu API解析完了: '
-      'workId=$workId, '
-      'raw=${rawEpisodes.length}, '
-      'parsed=${normalizedEpisodes.length}, '
-      'first=${normalizedEpisodes.first['title']}, '
-      'last=${normalizedEpisodes.last['title']}',
-    );
 
     return normalizedEpisodes;
   }
