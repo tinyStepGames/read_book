@@ -154,6 +154,7 @@ class NovelRepository {
           colorIndex: color.index,
           targetKey: work.workId,
           registeredAt: DateTime.now(),
+          lastKnownEpisodeCount: work.totalEpisodeCount,
         ),
       );
     }
