@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html_parser;
 
@@ -444,25 +443,9 @@ class KakuyomuScraper {
     try {
       final episodes = await _fetchEpisodeListFromApi(normalizedWorkId);
 
-      debugPrint(
-        'Kakuyomu API目次取得成功: '
-        'workId=$normalizedWorkId, episodes=${episodes.length}',
-      );
-
       return episodes;
-    } catch (error, stackTrace) {
-      debugPrint(
-        'Kakuyomu API目次取得失敗: '
-        'workId=$normalizedWorkId, error=$error',
-      );
-      debugPrintStack(stackTrace: stackTrace);
-
+    } catch (_) {
       final episodes = await _fetchEpisodeListFromHtml(normalizedWorkId);
-
-      debugPrint(
-        'Kakuyomu HTML目次取得: '
-        'workId=$normalizedWorkId, episodes=${episodes.length}',
-      );
 
       return episodes;
     }
@@ -484,14 +467,6 @@ class KakuyomuScraper {
 
     final data = _toJsonMap(response.data);
     final rawEpisodes = data['episodes'];
-
-    debugPrint(
-      'Kakuyomu API応答: '
-      'workId=$workId, '
-      'dataType=${response.data.runtimeType}, '
-      'episodesType=${rawEpisodes.runtimeType}, '
-      'episodesCount=${rawEpisodes is List ? rawEpisodes.length : 0}',
-    );
 
     if (rawEpisodes is! List) {
       throw StateError(
@@ -517,10 +492,6 @@ class KakuyomuScraper {
       final episodeId = _readEpisodeId(episodeData);
 
       if (episodeId.isEmpty) {
-        debugPrint(
-          'KakuyomuエピソードIDなし: '
-          '${episodeData.keys.join(', ')}',
-        );
         continue;
       }
 
@@ -601,15 +572,6 @@ class KakuyomuScraper {
     }
 
     _episodeIdCache[workId] = normalizedEpisodeIdMap;
-
-    debugPrint(
-      'Kakuyomu API解析完了: '
-      'workId=$workId, '
-      'raw=${rawEpisodes.length}, '
-      'parsed=${normalizedEpisodes.length}, '
-      'first=${normalizedEpisodes.first['title']}, '
-      'last=${normalizedEpisodes.last['title']}',
-    );
 
     return normalizedEpisodes;
   }

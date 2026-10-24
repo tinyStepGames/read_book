@@ -1,9 +1,10 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+
+import '../utils/app_log.dart';
 
 import '../models/download_job.dart';
 import '../models/work.dart';
@@ -244,9 +245,8 @@ class DownloadManager {
             );
 
             succeeded = _repository.isDownloaded(work, episodeNo);
-          } catch (error, stackTrace) {
-            debugPrint('第$episodeNo話のダウンロードに失敗しました: $error');
-            debugPrintStack(stackTrace: stackTrace);
+          } catch (error) {
+            AppLog.failure('エピソードのダウンロードに失敗しました', error);
           }
 
           await Future<void>.delayed(const Duration(milliseconds: 800));
@@ -261,9 +261,8 @@ class DownloadManager {
             }
 
             succeeded = true;
-          } catch (error, stackTrace) {
-            debugPrint('第$episodeNo話の公開日更新に失敗しました: $error');
-            debugPrintStack(stackTrace: stackTrace);
+          } catch (error) {
+            AppLog.failure('エピソード公開日の更新に失敗しました', error);
           }
         }
 
@@ -283,17 +282,15 @@ class DownloadManager {
 
       job.isCompleted = tracker.isCompleted;
       await job.save();
-    } catch (error, stackTrace) {
-      debugPrint('一括ダウンロード処理に失敗しました: $error');
-      debugPrintStack(stackTrace: stackTrace);
+    } catch (error) {
+      AppLog.failure('一括ダウンロード処理に失敗しました', error);
 
       job.isCompleted = false;
 
       try {
         await job.save();
-      } catch (saveError, saveStackTrace) {
-        debugPrint('未完了ジョブの保存に失敗しました: $saveError');
-        debugPrintStack(stackTrace: saveStackTrace);
+      } catch (saveError) {
+        AppLog.failure('未完了ジョブの保存に失敗しました', saveError);
       }
     } finally {
       _active.remove(work.workId);

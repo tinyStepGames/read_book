@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
+import 'utils/app_log.dart';
+
 import 'models/episode.dart';
 import 'models/favorite.dart';
 import 'models/history_entry.dart';
@@ -106,9 +108,8 @@ Future<void> _normalizeStoredWorkMetadata() async {
 Future<void> _openBoxSafely<T>(String name) async {
   try {
     await Hive.openBox<T>(name);
-  } catch (error, stackTrace) {
-    debugPrint('Box "$name" の読み込みに失敗しました: $error');
-    debugPrintStack(stackTrace: stackTrace);
+  } catch (error) {
+    AppLog.failure('Hive Boxの読み込みに失敗しました', error);
 
     // 自動削除は行いません。
     // 復元データや既存データを誤って消さないためです。

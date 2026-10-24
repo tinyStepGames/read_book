@@ -3,8 +3,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:background_downloader/background_downloader.dart';
-import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
+
+import '../utils/app_log.dart';
 
 import '../models/download_job.dart';
 import '../models/site.dart';
@@ -183,9 +184,8 @@ class BackgroundDownloadService {
   void _queueStatusUpdate(TaskStatusUpdate update) {
     _statusProcessing = _statusProcessing
         .then<void>((_) => _handleStatusUpdate(update))
-        .catchError((Object error, StackTrace stackTrace) {
-          debugPrint('バックグラウンド本文の取り込みに失敗しました: $error');
-          debugPrintStack(stackTrace: stackTrace);
+        .catchError((Object error, StackTrace _) {
+          AppLog.failure('バックグラウンド本文の取り込みに失敗しました', error);
         });
   }
 
@@ -326,7 +326,7 @@ class BackgroundDownloadService {
         await file.delete();
       }
     } catch (error) {
-      debugPrint('一時HTMLファイルを削除できませんでした: $error');
+      AppLog.failure('一時HTMLファイルを削除できませんでした', error);
     }
   }
 }
