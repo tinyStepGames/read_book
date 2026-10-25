@@ -3,12 +3,14 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:background_downloader/background_downloader.dart';
-import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
+
+import '../utils/app_log.dart';
 
 import '../models/download_job.dart';
 import '../models/site.dart';
 import '../models/work.dart';
+import '../utils/remote_resource_policy.dart';
 import 'background_episode_parser.dart';
 import 'novel_repository.dart';
 
@@ -100,8 +102,14 @@ class BackgroundDownloadService {
       }
 
       final url = (entry['url'] ?? '').trim();
+      final site = Site.values[work.siteIndex];
 
-      if (url.isEmpty || Uri.tryParse(url)?.hasAbsolutePath != true) {
+      final episodeUri = RemoteResourcePolicy.normalizeEpisodeUri(
+        site: site,
+        source: url,
+      );
+
+      if (episodeUri == null) {
         continue;
       }
 
@@ -127,12 +135,10 @@ class BackgroundDownloadService {
         'publishedAt': publishedAt,
       });
 
-      final site = Site.values[work.siteIndex];
-
       tasks.add(
         DownloadTask(
           taskId: taskId,
-          url: url,
+          url: episodeUri.toString(),
           headers: site == Site.narou ? _narouHeaders : _kakuyomuHeaders,
           filename: '$taskId.html',
           directory: downloadDirectory,
@@ -178,9 +184,8 @@ class BackgroundDownloadService {
   void _queueStatusUpdate(TaskStatusUpdate update) {
     _statusProcessing = _statusProcessing
         .then<void>((_) => _handleStatusUpdate(update))
-        .catchError((Object error, StackTrace stackTrace) {
-          debugPrint('バックグラウンド本文の取り込みに失敗しました: $error');
-          debugPrintStack(stackTrace: stackTrace);
+        .catchError((Object error, StackTrace _) {
+          AppLog.failure('バックグラウンド本文の取り込みに失敗しました', error);
         });
   }
 
@@ -235,6 +240,15 @@ class BackgroundDownloadService {
 
       if (!await file.exists()) {
         throw StateError('完了したHTMLファイルが見つかりません: $filePath');
+      }
+
+      final htmlBytes = await file.length();
+
+      if (htmlBytes <= 0 ||
+          htmlBytes > RemoteResourcePolicy.maximumEpisodeHtmlBytes) {
+        await file.delete();
+
+        throw StateError('取得したHTMLの容量が不正です: $htmlBytes バイト');
       }
 
       final html = await file.readAsString();
@@ -312,7 +326,7 @@ class BackgroundDownloadService {
         await file.delete();
       }
     } catch (error) {
-      debugPrint('一時HTMLファイルを削除できませんでした: $error');
+      AppLog.failure('一時HTMLファイルを削除できませんでした', error);
     }
   }
 }

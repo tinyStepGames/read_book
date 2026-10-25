@@ -6,6 +6,8 @@ import '../models/site.dart';
 import '../services/narou_api_client.dart';
 import '../widgets/favorite_star_button.dart';
 
+typedef SearchAuthorCallback = void Function(String author, String authorId);
+
 class ExpandableWorkCard extends StatefulWidget {
   final NarouSearchResult work;
   final FavoriteColor? favoriteColor;
@@ -13,7 +15,7 @@ class ExpandableWorkCard extends StatefulWidget {
   final VoidCallback? onOpenDetail;
   final VoidCallback? onDownload;
   final VoidCallback? onOpenDownloads;
-  final ValueChanged<String>? onSearchAuthor;
+  final SearchAuthorCallback? onSearchAuthor;
   final ValueChanged<String>? onSearchTag;
   final bool hasAnyRead;
   final bool hasAnyDownload;
@@ -164,6 +166,7 @@ class _ExpandableWorkCardState extends State<ExpandableWorkCard> {
     } else if (selected == 'author') {
       widget.onSearchAuthor?.call(
         result.author,
+        result.authorId,
       );
     } else if (selected == 'tag') {
       await _showTagMenu(tags);

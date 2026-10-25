@@ -8,6 +8,7 @@ import '../models/episode.dart';
 import '../models/site.dart';
 import '../utils/html_text_decoder.dart';
 import '../utils/novel_body_codec.dart';
+import '../utils/remote_response_guard.dart';
 import '../utils/search_query_parser.dart';
 
 /// なろう小説APIおよび作品ページのスクレイピングを行うクライアント
@@ -27,7 +28,12 @@ class NarouApiClient {
             'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
           },
         ),
-      );
+      ) {
+    RemoteResponseGuard.install(
+      _dio,
+      allowedHosts: const {'api.syosetu.com', 'ncode.syosetu.com'},
+    );
+  }
 
   final Dio _dio;
 
