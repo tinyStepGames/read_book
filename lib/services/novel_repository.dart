@@ -56,25 +56,6 @@ class NovelRepository {
     await saveWork(work);
   }
 
-  /// 検索結果カードに表示する正式なあらすじを取得します。
-  ///
-  /// カクヨムでは検索ページのキャッチコピーではなく、
-  /// 作品詳細APIのintroductionを優先します。
-  Future<String> fetchSearchResultSummary(NarouSearchResult result) async {
-    if (result.site != Site.kakuyomu) {
-      return result.summary.trim();
-    }
-
-    final details = await kakuyomuScraper.fetchWorkDetails(result.ncode);
-    final fullSummary = details.summary.trim();
-
-    if (fullSummary.isEmpty) {
-      return result.summary.trim();
-    }
-
-    return fullSummary;
-  }
-
   /// 指定作品のダウンロード済みエピソード一覧を返します。
   ///
   /// オフライン時のReader画面で、前話・次話の移動判定に使用します。

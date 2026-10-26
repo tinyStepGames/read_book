@@ -846,9 +846,7 @@ class _SearchScreenState extends State<SearchScreen> {
           return ExpandableWorkCard(
             key: ValueKey(result.ncode),
             work: result,
-            onLoadSummary: result.site == Site.kakuyomu
-                ? () => widget.repository.fetchSearchResultSummary(result)
-                : null,
+
             favoriteColor: widget.repository.favoriteColorOf(result.ncode),
             onFavoriteChanged: (color) {
               _onFavoriteChanged(result, color);

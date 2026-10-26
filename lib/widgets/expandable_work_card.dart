@@ -7,14 +7,13 @@ import '../services/narou_api_client.dart';
 import '../widgets/favorite_star_button.dart';
 
 typedef SearchAuthorCallback = void Function(String author, String authorId);
-typedef LoadWorkSummaryCallback = Future<String> Function();
 
 class ExpandableWorkCard extends StatefulWidget {
   final NarouSearchResult work;
   final FavoriteColor? favoriteColor;
   final ValueChanged<FavoriteColor?> onFavoriteChanged;
   final VoidCallback? onOpenDetail;
-  final LoadWorkSummaryCallback? onLoadSummary;
+
   final VoidCallback? onDownload;
   final VoidCallback? onOpenDownloads;
   final SearchAuthorCallback? onSearchAuthor;
@@ -30,7 +29,7 @@ class ExpandableWorkCard extends StatefulWidget {
     required this.favoriteColor,
     required this.onFavoriteChanged,
     this.onOpenDetail,
-    this.onLoadSummary,
+
     this.onDownload,
     this.onOpenDownloads,
     this.onSearchAuthor,
@@ -47,27 +46,6 @@ class ExpandableWorkCard extends StatefulWidget {
 
 class _ExpandableWorkCardState extends State<ExpandableWorkCard> {
   bool _expanded = false;
-  bool _isLoadingSummary = false;
-  bool _summaryLoaded = false;
-  late String _summary;
-
-  @override
-  void initState() {
-    super.initState();
-    _summary = widget.work.summary.trim();
-  }
-
-  @override
-  void didUpdateWidget(covariant ExpandableWorkCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-
-    if (oldWidget.work.ncode != widget.work.ncode) {
-      _expanded = false;
-      _isLoadingSummary = false;
-      _summaryLoaded = false;
-      _summary = widget.work.summary.trim();
-    }
-  }
 
   List<String> get _tags {
     return widget.work.keyword
@@ -213,46 +191,10 @@ class _ExpandableWorkCardState extends State<ExpandableWorkCard> {
     }
   }
 
-  Future<void> _toggleExpanded() async {
-    final willExpand = !_expanded;
-
+  void _toggleExpanded() {
     setState(() {
-      _expanded = willExpand;
+      _expanded = !_expanded;
     });
-
-    if (!willExpand || _summaryLoaded || widget.onLoadSummary == null) {
-      return;
-    }
-
-    final requestedWorkId = widget.work.ncode;
-
-    setState(() {
-      _isLoadingSummary = true;
-      _summaryLoaded = true;
-    });
-
-    try {
-      final loadedSummary = (await widget.onLoadSummary!.call()).trim();
-
-      if (!mounted || widget.work.ncode != requestedWorkId) {
-        return;
-      }
-
-      if (loadedSummary.isNotEmpty) {
-        setState(() {
-          _summary = loadedSummary;
-        });
-      }
-    } catch (_) {
-      // 正式なあらすじを取得できない場合は、
-      // 検索結果に含まれる概要をそのまま使用します。
-    } finally {
-      if (mounted && widget.work.ncode == requestedWorkId) {
-        setState(() {
-          _isLoadingSummary = false;
-        });
-      }
-    }
   }
 
   @override
@@ -260,7 +202,7 @@ class _ExpandableWorkCardState extends State<ExpandableWorkCard> {
     final result = widget.work;
     final theme = Theme.of(context);
     final isRead = widget.hasAnyRead;
-    final summary = _summary.trim();
+    final summary = result.summary.trim();
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
@@ -371,18 +313,7 @@ class _ExpandableWorkCardState extends State<ExpandableWorkCard> {
               const SizedBox(height: 8),
 
               // あらすじ
-              if (_isLoadingSummary)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 12),
-                  child: Center(
-                    child: SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  ),
-                )
-              else if (summary.isNotEmpty)
+              if (summary.isNotEmpty)
                 Text(
                   summary,
                   softWrap: true,
