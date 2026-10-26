@@ -5,6 +5,7 @@ import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html_parser;
 
 import '../models/episode.dart';
+import '../models/search_filters.dart';
 import '../models/site.dart';
 import '../utils/kakuyomu_author_search.dart';
 import '../utils/novel_body_codec.dart';
@@ -79,6 +80,7 @@ class KakuyomuScraper {
     bool authorNameOnly = false,
     bool keywordOnly = false,
     String? authorId,
+    SearchFilters filters = const SearchFilters(),
   }) async {
     final parsedQuery = SearchQueryParser.parse(word);
 
@@ -86,7 +88,13 @@ class KakuyomuScraper {
     // 除外語には「-」を付けたまま送信します。
     final kakuyomuQuery = parsedQuery.kakuyomuQuery;
 
-    final isRecentWorks = word.trim().isEmpty;
+    final filterError = filters.validate();
+
+    if (filterError != null) {
+      throw ArgumentError(filterError);
+    }
+
+    final isRecentWorks = word.trim().isEmpty && !filters.isActive;
     final normalizedPage = page < 1 ? 1 : page;
     final normalizedAuthorId = authorId?.trim() ?? '';
     final isDirectAuthorSearch =
@@ -107,8 +115,14 @@ class KakuyomuScraper {
       queryParameters: isDirectAuthorSearch
           ? null
           : <String, dynamic>{
-              if (!isRecentWorks) 'q': kakuyomuQuery,
+              if (kakuyomuQuery.isNotEmpty) 'q': kakuyomuQuery,
               if (!isRecentWorks) 'order': 'last_episode_published_at',
+              if (filters.kakuyomuSerialStatusParameter != null)
+                'serialStatus': filters.kakuyomuSerialStatusParameter,
+              if (filters.minimumLength != null ||
+                  filters.maximumLength != null)
+                'total_character_count_range':
+                    '${filters.minimumLength ?? ''}-${filters.maximumLength ?? ''}',
               if (normalizedPage > 1) 'page': normalizedPage,
             },
       options: Options(responseType: ResponseType.plain),
@@ -284,7 +298,13 @@ class KakuyomuScraper {
       );
     }
 
-    return results;
+    return results.where((result) {
+      return filters.matches(
+        isShortStory: result.isShortStory,
+        isCompleted: result.isCompleted,
+        length: result.length,
+      );
+    }).toList();
   }
 
   bool _matchesScopedSearch({

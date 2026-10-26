@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/favorite_color.dart';
+import '../models/search_filters.dart';
 import '../models/site.dart';
 import '../services/download_manager.dart';
 import '../services/kakuyomu_scraper.dart';
@@ -9,6 +10,7 @@ import '../services/novel_repository.dart';
 import '../services/search_request_controller.dart';
 import '../utils/no_animation_route.dart';
 import '../widgets/expandable_work_card.dart';
+import '../widgets/search_filter_bar.dart';
 import 'archive_screen.dart';
 import 'work_detail_screen.dart';
 
@@ -21,6 +23,7 @@ class _SearchQuery {
   final bool keywordOnly;
   final Site site;
   final String? kakuyomuAuthorId;
+  final SearchFilters filters;
 
   const _SearchQuery({
     required this.word,
@@ -28,6 +31,7 @@ class _SearchQuery {
     required this.keywordOnly,
     required this.site,
     required this.kakuyomuAuthorId,
+    required this.filters,
   });
 }
 
@@ -235,6 +239,7 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _authorNameOnly = false;
   bool _keywordOnly = false;
   String? _kakuyomuAuthorId;
+  SearchFilters _filters = const SearchFilters();
 
   Site _selectedSite = Site.narou;
 
@@ -313,6 +318,7 @@ class _SearchScreenState extends State<SearchScreen> {
     _authorNameOnly = request.authorNameOnly;
     _keywordOnly = request.keywordOnly;
     _kakuyomuAuthorId = null;
+    _filters = const SearchFilters();
 
     if (request.siteIndex >= 0 && request.siteIndex < Site.values.length) {
       _selectedSite = Site.values[request.siteIndex];
@@ -336,6 +342,7 @@ class _SearchScreenState extends State<SearchScreen> {
     // 先に検索対象サイトを確定させます。
     final searchSite = _selectedSite;
     final searchWord = _keywordController.text;
+    final searchFilters = _filters;
 
     final maxPage = _maxPageForSite(searchSite);
     final normalizedPage = page.clamp(1, maxPage).toInt();
@@ -348,6 +355,7 @@ class _SearchScreenState extends State<SearchScreen> {
           keywordOnly: _keywordOnly,
           site: searchSite,
           kakuyomuAuthorId: _kakuyomuAuthorId,
+          filters: searchFilters,
         ),
       );
     }
@@ -375,6 +383,7 @@ class _SearchScreenState extends State<SearchScreen> {
           start: start,
           authorNameOnly: _authorNameOnly,
           keywordOnly: _keywordOnly,
+          filters: searchFilters,
         );
       } else {
         // カクヨムはページ番号をそのまま渡します。
@@ -384,6 +393,7 @@ class _SearchScreenState extends State<SearchScreen> {
           authorNameOnly: _authorNameOnly,
           keywordOnly: _keywordOnly,
           authorId: _kakuyomuAuthorId,
+          filters: searchFilters,
         );
       }
 
@@ -481,6 +491,7 @@ class _SearchScreenState extends State<SearchScreen> {
     _keywordOnly = previous.keywordOnly;
     _selectedSite = previous.site;
     _kakuyomuAuthorId = previous.kakuyomuAuthorId;
+    _filters = previous.filters;
 
     _search(page: 1);
   }
@@ -495,6 +506,7 @@ class _SearchScreenState extends State<SearchScreen> {
     _authorNameOnly = false;
     _keywordOnly = false;
     _kakuyomuAuthorId = null;
+    _filters = const SearchFilters();
 
     _history.clear();
 
@@ -514,6 +526,11 @@ class _SearchScreenState extends State<SearchScreen> {
       _authorNameOnly = false;
       _keywordOnly = false;
       _kakuyomuAuthorId = null;
+
+      if (nextSite == Site.kakuyomu &&
+          _filters.serialStatus == SearchSerialStatus.shortStory) {
+        _filters = _filters.copyWith(serialStatus: SearchSerialStatus.all);
+      }
     });
 
     // カクヨムでキーワードが空の場合は、
@@ -741,6 +758,18 @@ class _SearchScreenState extends State<SearchScreen> {
     setState(() {});
   }
 
+  void _applySearchFilters(SearchFilters filters) {
+    if (_isLoading) {
+      return;
+    }
+
+    setState(() {
+      _filters = filters;
+    });
+
+    _search(page: 1);
+  }
+
   Widget _buildSiteSelector() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
@@ -815,7 +844,11 @@ class _SearchScreenState extends State<SearchScreen> {
           final result = _results[index];
 
           return ExpandableWorkCard(
+            key: ValueKey(result.ncode),
             work: result,
+            onLoadSummary: result.site == Site.kakuyomu
+                ? () => widget.repository.fetchSearchResultSummary(result)
+                : null,
             favoriteColor: widget.repository.favoriteColorOf(result.ncode),
             onFavoriteChanged: (color) {
               _onFavoriteChanged(result, color);
@@ -983,6 +1016,12 @@ class _SearchScreenState extends State<SearchScreen> {
       body: Column(
         children: [
           _buildSiteSelector(),
+          SearchFilterBar(
+            site: _selectedSite,
+            filters: _filters,
+            enabled: !_isLoading,
+            onChanged: _applySearchFilters,
+          ),
           if (_isLoading) const LinearProgressIndicator(),
           Expanded(child: _buildResultList()),
           _buildPagination(),

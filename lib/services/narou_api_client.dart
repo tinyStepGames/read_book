@@ -5,6 +5,7 @@ import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html_parser;
 
 import '../models/episode.dart';
+import '../models/search_filters.dart';
 import '../models/site.dart';
 import '../utils/html_text_decoder.dart';
 import '../utils/novel_body_codec.dart';
@@ -83,6 +84,7 @@ class NarouApiClient {
     String order = 'new',
     bool authorNameOnly = false,
     bool keywordOnly = false,
+    SearchFilters filters = const SearchFilters(),
   }) async {
     final parsedQuery = SearchQueryParser.parse(word);
 
@@ -103,6 +105,28 @@ class NarouApiClient {
       'st': normalizedStart.toString(),
       'of': _fields,
     };
+
+    final filterError = filters.validate();
+
+    if (filterError != null) {
+      throw ArgumentError(filterError);
+    }
+
+    final type = filters.narouTypeParameter;
+    final minimumLength = filters.minimumLength;
+    final maximumLength = filters.maximumLength;
+
+    if (type != null) {
+      queryParameters['type'] = type;
+    }
+
+    if (minimumLength != null) {
+      queryParameters['minlen'] = minimumLength.toString();
+    }
+
+    if (maximumLength != null) {
+      queryParameters['maxlen'] = maximumLength.toString();
+    }
 
     // 含める単語だけをなろうAPIへ送信します。
     if (parsedQuery.includeQuery.isNotEmpty) {
@@ -806,7 +830,7 @@ class NarouSearchResult {
       length: _toInt(json['length']),
       favNovelCnt: _toInt(json['fav_novel_cnt']),
       generalAllNo: _toInt(json['general_all_no']),
-      novelType: _toInt(json['novel_type'], fallback: 1),
+      novelType: _toInt(json['noveltype'] ?? json['novel_type'], fallback: 1),
       site: Site.narou,
     );
   }

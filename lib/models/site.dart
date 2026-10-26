@@ -4,7 +4,7 @@ extension SiteX on Site {
   String get displayName {
     switch (this) {
       case Site.narou:
-        return 'なろう';
+        return '小説家になろう';
       case Site.kakuyomu:
         return 'カクヨム';
     }
