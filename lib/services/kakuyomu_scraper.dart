@@ -8,6 +8,8 @@ import '../models/episode.dart';
 import '../models/search_filters.dart';
 import '../models/site.dart';
 import '../utils/kakuyomu_author_search.dart';
+import '../utils/kakuyomu_search_metadata.dart';
+import '../utils/kakuyomu_search_summary.dart';
 import '../utils/novel_body_codec.dart';
 import '../utils/remote_response_guard.dart';
 import '../utils/search_query_parser.dart';
@@ -194,7 +196,13 @@ class KakuyomuScraper {
           ? parsedAuthorId
           : (isDirectAuthorSearch ? normalizedAuthorId : '');
 
-      final summary = _findSummary(container, workId, title);
+      final parsedSearchSummary = KakuyomuSearchSummary.extract(
+        container: container,
+        workId: workId,
+      );
+      final summary = parsedSearchSummary.isNotEmpty
+          ? parsedSearchSummary
+          : _findSummary(container, workId, title);
 
       final genre = _cleanText(
         container
@@ -242,9 +250,7 @@ class KakuyomuScraper {
 
       final containerText = container?.text ?? '';
 
-      final episodeCount = _parseNumber(
-        RegExp(r'(\d[\d,]*)\s*話').firstMatch(containerText)?.group(1),
-      );
+      final episodeCount = KakuyomuSearchMetadata.episodeCount(container);
 
       final characterCount = _parseNumber(
         RegExp(r'(\d[\d,]*)\s*文字').firstMatch(containerText)?.group(1),
