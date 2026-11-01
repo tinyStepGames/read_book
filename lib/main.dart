@@ -166,6 +166,8 @@ class _RootScreenState extends State<RootScreen> with WidgetsBindingObserver {
   final SearchRequestController _searchRequestController =
       SearchRequestController();
 
+  late final DownloadManager _downloadManager;
+
   bool _isCheckingFavoriteUpdates = false;
   int _currentIndex = AppSessionService.selectedTab;
 
@@ -256,8 +258,12 @@ class _RootScreenState extends State<RootScreen> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      unawaited(_downloadManager.setApplicationActive(true));
       unawaited(_checkFavoriteUpdates());
+      return;
     }
+
+    unawaited(_downloadManager.setApplicationActive(false));
   }
 
   @override
@@ -265,7 +271,8 @@ class _RootScreenState extends State<RootScreen> with WidgetsBindingObserver {
     super.initState();
 
     WidgetsBinding.instance.addObserver(this);
-    DownloadManager.init(_repository);
+    _downloadManager = DownloadManager.init(_repository);
+    unawaited(_downloadManager.setApplicationActive(true));
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) {

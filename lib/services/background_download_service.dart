@@ -12,13 +12,14 @@ import '../models/site.dart';
 import '../models/work.dart';
 import '../utils/remote_resource_policy.dart';
 import 'background_episode_parser.dart';
+import 'background_progress_buffer.dart';
 import 'novel_repository.dart';
 
-typedef BackgroundDownloadProgressCallback =
-    void Function(String workId, int done, int total, bool isRunning);
-
 class BackgroundDownloadService {
-  BackgroundDownloadService(this._repository, this._onProgress);
+  BackgroundDownloadService(
+    this._repository,
+    BackgroundDownloadProgressCallback onProgress,
+  ) : _progressBuffer = BackgroundProgressBuffer(onProgress);
 
   static const String groupName = 'read_book_episode_downloads';
   static const String downloadDirectory = 'read_book_background';
@@ -46,12 +47,14 @@ class BackgroundDownloadService {
   };
 
   final NovelRepository _repository;
-  final BackgroundDownloadProgressCallback _onProgress;
+  final BackgroundProgressBuffer _progressBuffer;
   final FileDownloader _downloader = FileDownloader();
 
   bool _initialized = false;
   Future<void>? _initializing;
   Future<void> _statusProcessing = Future<void>.value();
+  bool _applicationActive = false;
+  int _progressFlushGeneration = 0;
 
   Box<DownloadJob> get _jobBox => Hive.box<DownloadJob>('download_jobs');
 
@@ -168,13 +171,13 @@ class BackgroundDownloadService {
 
     await _jobBox.put(work.workId, job);
 
-    _onProgress(work.workId, 0, tasks.length, true);
+    _emitProgress(work.workId, 0, tasks.length, true);
 
     final results = await _downloader.enqueueAll(tasks);
     final acceptedCount = results.where((accepted) => accepted).length;
 
     if (acceptedCount == 0) {
-      _onProgress(work.workId, 0, tasks.length, false);
+      _emitProgress(work.workId, 0, tasks.length, false);
       return false;
     }
 
@@ -203,7 +206,7 @@ class BackgroundDownloadService {
         final job = _jobBox.get(workId);
 
         if (workId.isNotEmpty && job != null) {
-          _onProgress(workId, job.doneCount, job.totalCount, false);
+          _emitProgress(workId, job.doneCount, job.totalCount, false);
         }
       }
 
@@ -281,10 +284,58 @@ class BackgroundDownloadService {
 
       await job.save();
 
-      _onProgress(workId, job.doneCount, job.totalCount, !job.isCompleted);
+      _emitProgress(workId, job.doneCount, job.totalCount, !job.isCompleted);
     }
 
     await _deleteTemporaryFile(update.task);
+  }
+
+  /// アプリの表示状態に応じて、画面向け進捗通知をまとめます。
+  ///
+  /// 本文解析・Hive保存は従来どおり1話ずつ実行します。
+  /// バックグラウンド中は通知だけを保留し、復帰後に最新状態を
+  /// 作品ごとに1回だけ通知します。
+  void setApplicationActive(bool active) {
+    _applicationActive = active;
+    _progressFlushGeneration++;
+
+    if (!active) {
+      _progressBuffer.beginBatch();
+      return;
+    }
+
+    unawaited(_flushBufferedProgressWhenIdle());
+  }
+
+  void _emitProgress(String workId, int done, int total, bool isRunning) {
+    _progressBuffer.add(
+      workId: workId,
+      done: done,
+      total: total,
+      isRunning: isRunning,
+    );
+  }
+
+  Future<void> _flushBufferedProgressWhenIdle() async {
+    final generation = _progressFlushGeneration;
+
+    while (_applicationActive && generation == _progressFlushGeneration) {
+      final processing = _statusProcessing;
+
+      await processing;
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      if (!identical(processing, _statusProcessing)) {
+        continue;
+      }
+
+      if (!_applicationActive || generation != _progressFlushGeneration) {
+        return;
+      }
+
+      _progressBuffer.flush();
+      return;
+    }
   }
 
   Map<String, dynamic> _decodeMetadata(String value) {

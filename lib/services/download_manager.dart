@@ -105,6 +105,27 @@ class DownloadManager {
         (_backgroundProgress[workId]?.isRunning ?? false);
   }
 
+  /// iOSバックグラウンドダウンロードの画面向け進捗通知を制御します。
+  Future<void> setApplicationActive(bool active) async {
+    if (!Platform.isIOS) {
+      return;
+    }
+
+    final service = _backgroundService;
+
+    if (service == null) {
+      return;
+    }
+
+    if (!active) {
+      service.setApplicationActive(false);
+      return;
+    }
+
+    await service.initialize();
+    service.setApplicationActive(true);
+  }
+
   Future<void> downloadSingle({
     required Work work,
     required int episodeNo,
