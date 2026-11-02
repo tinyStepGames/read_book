@@ -8,6 +8,7 @@ import '../models/site.dart';
 import '../models/work.dart';
 import '../services/novel_repository.dart';
 import '../services/search_request_controller.dart';
+import '../utils/app_log.dart';
 import '../utils/no_animation_route.dart';
 import 'reader_screen.dart';
 import 'work_detail_screen.dart';
@@ -1081,6 +1082,100 @@ class _DownloadedWorkScreenState extends State<DownloadedWorkScreen> {
     ).showSnackBar(const SnackBar(content: Text('ダウンロードファイルを削除しました')));
   }
 
+  Future<void> _confirmAndDeleteAllDownloads() async {
+    final manager = DownloadManager.instance;
+
+    if (manager.isDownloading(work.workId)) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('ダウンロード中はファイルを削除できません')));
+      return;
+    }
+
+    if (!repository.hasAnyDownload(work.workId)) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('ダウンロード済みの本文はありません')));
+      return;
+    }
+
+    final downloadCount = Hive.box<Download>('downloads').values.where((
+      download,
+    ) {
+      return download.workId == work.workId;
+    }).length;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('ダウンロードファイルを削除'),
+          content: Text(
+            'この作品のダウンロード済み本文と挿絵を削除します。\n\n'
+            '$downloadCount話のファイルが削除されます。\n'
+            '既読情報、履歴、お気に入り、作品情報は削除されません。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop(false);
+              },
+              child: const Text('キャンセル'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop(true);
+              },
+              style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(dialogContext).colorScheme.error,
+                foregroundColor: Theme.of(dialogContext).colorScheme.onError,
+              ),
+              child: const Text('削除'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true || !mounted) {
+      return;
+    }
+
+    // 確認中にダウンロードが始まった場合も削除しません。
+    if (manager.isDownloading(work.workId)) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('ダウンロード中はファイルを削除できません')));
+      return;
+    }
+
+    try {
+      await repository.deleteAllDownloads(work.workId, site: _siteOfWork());
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _currentEpisodePage = 1;
+      });
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('ダウンロードファイルを削除しました')));
+    } catch (error) {
+      AppLog.failure('書庫詳細画面のダウンロード削除に失敗しました', error);
+
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('ダウンロードファイルを削除できませんでした')));
+    }
+  }
+
   Future<void> _confirmAndDownloadMissing() async {
     if (_isFetchingEpisodeList) {
       return;
@@ -1231,6 +1326,24 @@ class _DownloadedWorkScreenState extends State<DownloadedWorkScreen> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.download),
+          ),
+          StreamBuilder<DownloadProgress>(
+            stream: DownloadManager.instance.progressStream,
+            builder: (context, _) {
+              final hasDownloads = repository.hasAnyDownload(work.workId);
+              final isDownloading = DownloadManager.instance.isDownloading(
+                work.workId,
+              );
+
+              return IconButton(
+                tooltip: isDownloading ? 'ダウンロード中は削除できません' : 'ダウンロードファイルを削除',
+                onPressed:
+                    _isFetchingEpisodeList || !hasDownloads || isDownloading
+                    ? null
+                    : _confirmAndDeleteAllDownloads,
+                icon: const Icon(Icons.delete_outline),
+              );
+            },
           ),
         ],
       ),
