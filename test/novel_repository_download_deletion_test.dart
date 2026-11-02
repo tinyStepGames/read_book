@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 import 'package:read_book/models/download.dart';
+import 'package:read_book/models/read_mark.dart';
 import 'package:read_book/models/site.dart';
 import 'package:read_book/services/illustration_storage_service.dart';
 import 'package:read_book/services/novel_repository.dart';
@@ -12,6 +13,7 @@ void main() {
   late _RecordingIllustrationStorageService illustrationStorageService;
   late NovelRepository repository;
   late Box<Download> downloadBox;
+  late Box<ReadMark> readMarkBox;
 
   setUp(() async {
     temporaryDirectory = await Directory.systemTemp.createTemp(
@@ -20,13 +22,19 @@ void main() {
 
     Hive.init(temporaryDirectory.path);
 
-    final adapter = DownloadAdapter();
+    final downloadAdapter = DownloadAdapter();
+    final readMarkAdapter = ReadMarkAdapter();
 
-    if (!Hive.isAdapterRegistered(adapter.typeId)) {
-      Hive.registerAdapter(adapter);
+    if (!Hive.isAdapterRegistered(downloadAdapter.typeId)) {
+      Hive.registerAdapter(downloadAdapter);
+    }
+
+    if (!Hive.isAdapterRegistered(readMarkAdapter.typeId)) {
+      Hive.registerAdapter(readMarkAdapter);
     }
 
     downloadBox = await Hive.openBox<Download>('downloads');
+    readMarkBox = await Hive.openBox<ReadMark>('read_marks');
     illustrationStorageService = _RecordingIllustrationStorageService();
     repository = NovelRepository(
       illustrationStorageService: illustrationStorageService,
@@ -57,11 +65,17 @@ void main() {
     await downloadBox.put('target_2', createDownload('n3380le', 2));
     await downloadBox.put('other_1', createDownload('other', 1));
 
+    await readMarkBox.put(
+      'n3380le_1',
+      ReadMark(workId: 'n3380le', episodeNo: 1, readAt: DateTime(2026)),
+    );
+
     await repository.deleteAllDownloads('n3380le', site: Site.narou);
 
     expect(downloadBox.get('target_1'), isNull);
     expect(downloadBox.get('target_2'), isNull);
     expect(downloadBox.get('other_1'), isNotNull);
+    expect(readMarkBox.get('n3380le_1'), isNotNull);
     expect(illustrationStorageService.deletedWorks, <String>['narou/n3380le']);
   });
 

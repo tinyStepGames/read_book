@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../models/site.dart';
 import '../models/work.dart';
 import '../services/download_manager.dart';
 import '../services/novel_repository.dart';
+import '../utils/app_log.dart';
 import '../utils/no_animation_route.dart';
 import 'reader_screen.dart';
 
@@ -382,6 +384,103 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
     }
   }
 
+  Future<void> _confirmAndDeleteDownloads() async {
+    final manager = DownloadManager.instance;
+
+    if (manager.isDownloading(widget.work.workId)) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('ダウンロード中はファイルを削除できません')));
+      return;
+    }
+
+    if (!widget.repository.hasAnyDownload(widget.work.workId)) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('ダウンロード済みの本文はありません')));
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('ダウンロードファイルを削除'),
+          content: const Text(
+            'この作品のダウンロード済み本文と挿絵を削除します。\n\n'
+            '既読情報、履歴、お気に入り、作品情報は削除されません。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop(false);
+              },
+              child: const Text('キャンセル'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop(true);
+              },
+              style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(dialogContext).colorScheme.error,
+                foregroundColor: Theme.of(dialogContext).colorScheme.onError,
+              ),
+              child: const Text('削除'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true || !mounted) {
+      return;
+    }
+
+    // 確認ダイアログ表示中にダウンロードが始まった場合も拒否します。
+    if (manager.isDownloading(widget.work.workId)) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('ダウンロード中はファイルを削除できません')));
+      return;
+    }
+
+    final siteIndex = widget.work.siteIndex;
+
+    if (siteIndex < 0 || siteIndex >= Site.values.length) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('作品の掲載サイト情報が不正です')));
+      return;
+    }
+
+    try {
+      await widget.repository.deleteAllDownloads(
+        widget.work.workId,
+        site: Site.values[siteIndex],
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {});
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('ダウンロードファイルを削除しました')));
+    } catch (error) {
+      AppLog.failure('ダウンロードファイルの削除に失敗しました', error);
+
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('ダウンロードファイルを削除できませんでした')));
+    }
+  }
+
   Future<void> _confirmAndBulkDownload() async {
     final undownloaded = _episodes.where((entry) {
       final episodeNo = int.tryParse(entry['episodeNo'] ?? '') ?? 0;
@@ -574,6 +673,27 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
             icon: const Icon(Icons.download),
             tooltip: '全話ダウンロード',
             onPressed: _isLoading ? null : _confirmAndBulkDownload,
+          ),
+
+          // ダウンロード済み本文・挿絵の削除
+          StreamBuilder<DownloadProgress>(
+            stream: DownloadManager.instance.progressStream,
+            builder: (context, _) {
+              final hasDownloads = widget.repository.hasAnyDownload(
+                widget.work.workId,
+              );
+              final isDownloading = DownloadManager.instance.isDownloading(
+                widget.work.workId,
+              );
+
+              return IconButton(
+                icon: const Icon(Icons.delete_outline),
+                tooltip: isDownloading ? 'ダウンロード中は削除できません' : 'ダウンロードファイルを削除',
+                onPressed: _isLoading || !hasDownloads || isDownloading
+                    ? null
+                    : _confirmAndDeleteDownloads,
+              );
+            },
           ),
         ],
       ),
