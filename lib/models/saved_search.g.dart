@@ -24,13 +24,17 @@ class SavedSearchAdapter extends TypeAdapter<SavedSearch> {
       lastKnownNcodes: (fields[4] as List?)?.cast<String>(),
       authorNameOnly: fields[5] as bool,
       keywordOnly: fields[6] as bool,
+      serialStatusIndex: fields[7] as int? ?? 0,
+      lengthPresetIndex: fields[8] as int? ?? 0,
+      customMinimumLength: fields[9] as int?,
+      customMaximumLength: fields[10] as int?,
     );
   }
 
   @override
   void write(BinaryWriter writer, SavedSearch obj) {
     writer
-      ..writeByte(7)
+      ..writeByte(11)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -44,7 +48,15 @@ class SavedSearchAdapter extends TypeAdapter<SavedSearch> {
       ..writeByte(5)
       ..write(obj.authorNameOnly)
       ..writeByte(6)
-      ..write(obj.keywordOnly);
+      ..write(obj.keywordOnly)
+      ..writeByte(7)
+      ..write(obj.serialStatusIndex)
+      ..writeByte(8)
+      ..write(obj.lengthPresetIndex)
+      ..writeByte(9)
+      ..write(obj.customMinimumLength)
+      ..writeByte(10)
+      ..write(obj.customMaximumLength);
   }
 
   @override
