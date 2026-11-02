@@ -54,14 +54,14 @@ void main() {
     expect(find.byType(CircularProgressIndicator), findsNothing);
   });
 
-  testWidgets('カクヨムでは評価値を★数として表示する', (tester) async {
+  testWidgets('カクヨムでは評価値を星記号付きで表示する', (tester) async {
     final work = createWork(site: Site.kakuyomu, favoriteCount: 135);
 
     await tester.pumpWidget(buildCard(work));
     await tester.tap(find.textContaining('テスト作品'));
     await tester.pump();
 
-    expect(find.text('★数:135'), findsOneWidget);
+    expect(find.text('★135'), findsOneWidget);
     expect(find.text('お気に入り人数:135'), findsNothing);
   });
 
@@ -73,6 +73,6 @@ void main() {
     await tester.pump();
 
     expect(find.text('お気に入り人数:246'), findsOneWidget);
-    expect(find.text('★数:246'), findsNothing);
+    expect(find.text('★246'), findsNothing);
   });
 }
