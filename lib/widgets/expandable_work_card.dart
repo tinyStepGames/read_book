@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../models/favorite_color.dart';
 import '../models/site.dart';
 import '../services/narou_api_client.dart';
+import '../utils/work_tags.dart';
 import '../widgets/favorite_star_button.dart';
 
 typedef SearchAuthorCallback = void Function(String author, String authorId);
@@ -48,11 +49,7 @@ class _ExpandableWorkCardState extends State<ExpandableWorkCard> {
   bool _expanded = false;
 
   List<String> get _tags {
-    return widget.work.keyword
-        .split(RegExp(r'[\s　]+'))
-        .map((tag) => tag.trim())
-        .where((tag) => tag.isNotEmpty)
-        .toList();
+    return WorkTags.decode(widget.work.keyword);
   }
 
   Future<void> _showMoreMenu() async {

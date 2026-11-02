@@ -1,5 +1,7 @@
 import 'package:hive/hive.dart';
 
+import '../utils/work_tags.dart';
+
 part 'work.g.dart';
 
 @HiveType(typeId: 1)
@@ -59,10 +61,6 @@ class Work extends HiveObject {
     this.keyword,
   });
 
-  /// keyword文字列をタグのリストに変換
-  List<String> get tags => (keyword ?? '')
-      .split(' ')
-      .map((t) => t.trim())
-      .where((t) => t.isNotEmpty)
-      .toList();
+  /// 保存形式に応じてkeyword文字列をタグのリストへ変換します。
+  List<String> get tags => WorkTags.decode(keyword ?? '');
 }

@@ -13,6 +13,7 @@ import '../utils/kakuyomu_search_summary.dart';
 import '../utils/novel_body_codec.dart';
 import '../utils/remote_response_guard.dart';
 import '../utils/search_query_parser.dart';
+import '../utils/work_tags.dart';
 
 import 'narou_api_client.dart';
 
@@ -333,7 +334,7 @@ class KakuyomuScraper {
           summary: summary,
           biggenre: bigGenreNumber,
           genre: bigGenreNumber,
-          keyword: tags.join(' '),
+          keyword: WorkTags.encode(tags),
           generalFirstup: '',
           generalLastup: updatedAt,
           end: isCompleted ? 0 : 1,
