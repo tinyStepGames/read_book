@@ -349,8 +349,9 @@ class _ExpandableWorkCardState extends State<ExpandableWorkCard> {
                     style: const TextStyle(fontSize: 11, color: Colors.grey),
                   ),
                   Text(
-                    'お気に入り人数:'
-                    '${result.favNovelCnt}',
+                    result.site == Site.kakuyomu
+                        ? '★数:${result.favNovelCnt}'
+                        : 'お気に入り人数:${result.favNovelCnt}',
                     style: const TextStyle(fontSize: 11, color: Colors.grey),
                   ),
                 ],
