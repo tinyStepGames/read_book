@@ -23,6 +23,49 @@ class KakuyomuWorkDetails {
   const KakuyomuWorkDetails({required this.summary});
 }
 
+/// カクヨム公式APIから取得した更新確認情報です。
+class KakuyomuUpdateSnapshot {
+  final int episodeCount;
+  final bool isCompleted;
+
+  const KakuyomuUpdateSnapshot({
+    required this.episodeCount,
+    required this.isCompleted,
+  });
+
+  factory KakuyomuUpdateSnapshot.fromJson(Map<String, dynamic> json) {
+    final rawEpisodeCount = json['public_episode_count'];
+
+    final parsedEpisodeCount = switch (rawEpisodeCount) {
+      num value => value.toInt(),
+      String value => int.tryParse(value) ?? 0,
+      _ => 0,
+    };
+
+    final episodes = json['episodes'];
+    final fallbackEpisodeCount = episodes is List ? episodes.length : 0;
+
+    final episodeCount = parsedEpisodeCount > 0
+        ? parsedEpisodeCount
+        : fallbackEpisodeCount;
+
+    final completed = json['is_completed'];
+
+    if (episodeCount <= 0) {
+      throw const FormatException('カクヨムAPIから有効な公開話数を取得できませんでした。');
+    }
+
+    if (completed is! bool) {
+      throw const FormatException('カクヨムAPIから完結状態を取得できませんでした。');
+    }
+
+    return KakuyomuUpdateSnapshot(
+      episodeCount: episodeCount,
+      isCompleted: completed,
+    );
+  }
+}
+
 /// 作品ページHTMLの短時間キャッシュ
 class _CachedWorkPage {
   final String html;
@@ -349,6 +392,38 @@ class KakuyomuScraper {
   ///
   /// 通常の作品ページHTMLでは「…続きを読む」の位置で省略されるため、
   /// アプリ用JSON APIのintroductionを優先して使用します。
+  /// カクヨム公式APIから公開話数と完結状態を取得します。
+  ///
+  /// どちらかを安全に取得できない場合は例外とし、
+  /// 呼び出し側で保存済み情報を変更しないようにします。
+  Future<KakuyomuUpdateSnapshot> fetchUpdateSnapshot(String workId) async {
+    final normalizedWorkId = workId.trim();
+
+    if (normalizedWorkId.isEmpty ||
+        !RegExp(r'^\d+$').hasMatch(normalizedWorkId)) {
+      throw const FormatException('カクヨムの作品IDが不正です。');
+    }
+
+    final response = await _dio.get<String>(
+      'https://kakuyomu.jp/api/app/works/$normalizedWorkId',
+      options: Options(responseType: ResponseType.plain),
+    );
+
+    final rawJson = response.data ?? '';
+
+    if (rawJson.trim().isEmpty) {
+      throw const FormatException('カクヨムAPIの応答が空です。');
+    }
+
+    final decoded = jsonDecode(rawJson);
+
+    if (decoded is! Map) {
+      throw const FormatException('カクヨムAPIの応答形式が不正です。');
+    }
+
+    return KakuyomuUpdateSnapshot.fromJson(Map<String, dynamic>.from(decoded));
+  }
+
   Future<KakuyomuWorkDetails> fetchWorkDetails(String workId) async {
     final normalizedWorkId = _normalizeWorkId(workId);
 

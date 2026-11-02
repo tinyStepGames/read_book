@@ -119,13 +119,14 @@ class UpdateChecker {
         );
 
       case Site.kakuyomu:
-        final episodes = await _kakuyomuScraper.fetchEpisodeList(work.workId);
+        final refreshed = await _kakuyomuScraper.fetchUpdateSnapshot(
+          work.workId,
+        );
 
-        if (episodes.isEmpty) {
-          return null;
-        }
-
-        return UpdateCheckSnapshot(episodeCount: episodes.length);
+        return UpdateCheckSnapshot(
+          episodeCount: refreshed.episodeCount,
+          isCompleted: refreshed.isCompleted,
+        );
     }
   }
 
