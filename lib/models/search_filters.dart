@@ -81,10 +81,10 @@ class SearchFilters {
         return null;
 
       case SearchSerialStatus.ongoing:
-        return 'ONGOING';
+        return 'ongoing';
 
       case SearchSerialStatus.completed:
-        return 'COMPLETED';
+        return 'completed';
     }
   }
 

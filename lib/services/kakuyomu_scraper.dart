@@ -120,7 +120,7 @@ class KakuyomuScraper {
               if (kakuyomuQuery.isNotEmpty) 'q': kakuyomuQuery,
               if (!isRecentWorks) 'order': 'last_episode_published_at',
               if (filters.kakuyomuSerialStatusParameter != null)
-                'serialStatus': filters.kakuyomuSerialStatusParameter,
+                'serial_status': filters.kakuyomuSerialStatusParameter,
               if (filters.minimumLength != null ||
                   filters.maximumLength != null)
                 'total_character_count_range':
@@ -248,20 +248,12 @@ class KakuyomuScraper {
         continue;
       }
 
-      final containerText = container?.text ?? '';
-
-      final episodeCount = KakuyomuSearchMetadata.episodeCount(container);
-
-      final characterCount = _parseNumber(
-        RegExp(r'(\d[\d,]*)\s*文字').firstMatch(containerText)?.group(1),
-      );
-
-      final starCount = _parseNumber(
-        RegExp(r'★\s*(\d[\d,]*)').firstMatch(containerText)?.group(1),
-      );
-
+      final metadata = KakuyomuSearchMetadata.read(container);
+      final episodeCount = metadata.episodeCount;
+      final characterCount = metadata.characterCount;
+      final starCount = metadata.starCount;
       final isCompleted =
-          containerText.contains('完結') || containerText.contains('完結済');
+          metadata.serialStatus == KakuyomuSerialStatus.completed;
 
       final updatedElement =
           container?.querySelector('time') ??
@@ -1226,16 +1218,6 @@ class KakuyomuScraper {
   // ---------------------------------------------------------------------------
   // 数値・ジャンル
   // ---------------------------------------------------------------------------
-
-  int _parseNumber(String? raw) {
-    final normalized = (raw ?? '').replaceAll(',', '').trim();
-
-    if (normalized.isEmpty) {
-      return 0;
-    }
-
-    return int.tryParse(normalized) ?? 0;
-  }
 
   int _bigGenreNumber(String genre) {
     if (genre.contains('恋愛') || genre.contains('ラブコメ')) {

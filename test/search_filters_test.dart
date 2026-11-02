@@ -31,14 +31,14 @@ void main() {
         const SearchFilters(
           serialStatus: SearchSerialStatus.ongoing,
         ).kakuyomuSerialStatusParameter,
-        'ONGOING',
+        'ongoing',
       );
 
       expect(
         const SearchFilters(
           serialStatus: SearchSerialStatus.completed,
         ).kakuyomuSerialStatusParameter,
-        'COMPLETED',
+        'completed',
       );
 
       expect(
