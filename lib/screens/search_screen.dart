@@ -3,12 +3,14 @@ import 'package:flutter/material.dart';
 import '../models/favorite_color.dart';
 import '../models/search_filters.dart';
 import '../models/site.dart';
+import '../services/blocked_author_service.dart';
 import '../services/download_manager.dart';
 import '../services/kakuyomu_scraper.dart';
 import '../services/narou_api_client.dart';
 import '../services/novel_repository.dart';
 import '../services/search_request_controller.dart';
 import '../utils/no_animation_route.dart';
+import '../widgets/blocked_authors_dialog.dart';
 import '../widgets/expandable_work_card.dart';
 import '../widgets/search_filter_bar.dart';
 import 'archive_screen.dart';
@@ -223,6 +225,7 @@ class _SearchScreenState extends State<SearchScreen> {
   final ScrollController _scrollController = ScrollController();
 
   List<NarouSearchResult> _results = <NarouSearchResult>[];
+  int _blockedResultCount = 0;
 
   bool _isLoading = false;
   int _page = 1;
@@ -414,8 +417,19 @@ class _SearchScreenState extends State<SearchScreen> {
         return;
       }
 
+      final visibleResults = results
+          .where((result) {
+            return !BlockedAuthorService.isBlocked(
+              site: result.site,
+              authorId: result.authorId,
+              authorName: result.author,
+            );
+          })
+          .toList(growable: false);
+
       setState(() {
-        _results = results;
+        _results = visibleResults;
+        _blockedResultCount = results.length - visibleResults.length;
         _page = normalizedPage;
       });
 
@@ -662,6 +676,76 @@ class _SearchScreenState extends State<SearchScreen> {
     _search(page: 1);
   }
 
+  Future<void> _blockAuthor(NarouSearchResult result) async {
+    final authorName = result.author.trim().isEmpty ? 'この作者' : result.author;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('この作者をブロックしますか？'),
+          content: Text(
+            '「$authorName」の作品を検索結果と新着小説から非表示にします。\n\n'
+            'お気に入り、書庫、履歴、既読記録、'
+            'ダウンロード済み本文は削除されません。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogContext, false);
+              },
+              child: const Text('キャンセル'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(dialogContext, true);
+              },
+              child: const Text('ブロック'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true || !mounted) {
+      return;
+    }
+
+    final added = await BlockedAuthorService.block(
+      site: result.site,
+      authorId: result.authorId,
+      authorName: result.author,
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    final beforeCount = _results.length;
+
+    setState(() {
+      _results = _results
+          .where((candidate) {
+            return !BlockedAuthorService.isBlocked(
+              site: candidate.site,
+              authorId: candidate.authorId,
+              authorName: candidate.author,
+            );
+          })
+          .toList(growable: false);
+
+      _blockedResultCount += beforeCount - _results.length;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          added ? '「$authorName」をブロックしました' : '「$authorName」はすでにブロックされています',
+        ),
+      ),
+    );
+  }
+
   Future<void> _download(NarouSearchResult result) async {
     final work = widget.repository.workFromNarouResult(result);
 
@@ -815,6 +899,16 @@ class _SearchScreenState extends State<SearchScreen> {
       return const SizedBox.shrink();
     }
 
+    if (_blockedResultCount > 0) {
+      return Center(
+        child: Text(
+          'ブロック中の作者の作品を'
+          '$_blockedResultCount件除外しました',
+          textAlign: TextAlign.center,
+        ),
+      );
+    }
+
     if (_selectedSite == Site.kakuyomu &&
         _keywordController.text.trim().isEmpty) {
       return const Center(
@@ -868,6 +962,7 @@ class _SearchScreenState extends State<SearchScreen> {
               _download(result);
             },
             onSearchAuthor: _searchByAuthor,
+            onBlockAuthor: _blockAuthor,
             onSearchTag: _searchByTag,
             hasAnyRead: widget.repository.hasAnyRead(result.ncode),
             hasAnyDownload: widget.repository.hasAnyDownload(result.ncode),
@@ -1004,6 +1099,15 @@ class _SearchScreenState extends State<SearchScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.person_off_outlined),
+            tooltip: 'ブロック中の作者',
+            onPressed: _isLoading
+                ? null
+                : () {
+                    showBlockedAuthorsDialog(context);
+                  },
+          ),
           IconButton(
             icon: Icon(
               _isCurrentSearchFavorited

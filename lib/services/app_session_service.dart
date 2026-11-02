@@ -51,7 +51,7 @@ class AppSessionService {
       return 0;
     }
 
-    return value.clamp(0, 3);
+    return value.clamp(0, 4);
   }
 
   static Future<void> saveSelectedTab(int index) async {
@@ -61,7 +61,7 @@ class AppSessionService {
       return;
     }
 
-    await box.put(_selectedTabKey, index.clamp(0, 3));
+    await box.put(_selectedTabKey, index.clamp(0, 4));
   }
 
   static ReaderSession? get readerSession {

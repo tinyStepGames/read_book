@@ -15,6 +15,7 @@ import 'screens/favorite_screen.dart';
 import 'screens/history_screen.dart';
 import 'screens/reader_screen.dart';
 import 'screens/search_screen.dart';
+import 'screens/settings_screen.dart';
 import 'screens/archive_screen.dart';
 import 'services/app_session_service.dart';
 import 'services/backup_service.dart';
@@ -197,6 +198,7 @@ class _RootScreenState extends State<RootScreen> with WidgetsBindingObserver {
         _selectTab(0);
       },
     ),
+    const SettingsScreen(),
   ];
 
   void _selectTab(int index) {
@@ -326,6 +328,11 @@ class _RootScreenState extends State<RootScreen> with WidgetsBindingObserver {
           NavigationDestination(
             icon: Icon(Icons.folder),
             label: '書庫',
+            tooltip: '',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.settings),
+            label: '設定',
             tooltip: '',
           ),
         ],

@@ -26,13 +26,17 @@ void main() {
     );
   }
 
-  Widget buildCard(NarouSearchResult work) {
+  Widget buildCard(
+    NarouSearchResult work, {
+    ValueChanged<NarouSearchResult>? onBlockAuthor,
+  }) {
     return MaterialApp(
       home: Scaffold(
         body: ExpandableWorkCard(
           work: work,
           favoriteColor: null,
           onFavoriteChanged: (_) {},
+          onBlockAuthor: onBlockAuthor,
         ),
       ),
     );
@@ -74,5 +78,29 @@ void main() {
 
     expect(find.text('お気に入り人数:246'), findsOneWidget);
     expect(find.text('★246'), findsNothing);
+  });
+
+  testWidgets('三点メニューから作者をブロックできる', (tester) async {
+    final work = createWork(site: Site.kakuyomu);
+    NarouSearchResult? blockedWork;
+
+    await tester.pumpWidget(
+      buildCard(
+        work,
+        onBlockAuthor: (value) {
+          blockedWork = value;
+        },
+      ),
+    );
+
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+
+    expect(find.text('この作者をブロック'), findsOneWidget);
+
+    await tester.tap(find.text('この作者をブロック'));
+    await tester.pumpAndSettle();
+
+    expect(blockedWork, same(work));
   });
 }

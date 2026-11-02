@@ -76,7 +76,7 @@ void main() {
 
     final session = AppSessionService.readerSession;
 
-    expect(AppSessionService.selectedTab, 3);
+    expect(AppSessionService.selectedTab, 4);
     expect(session!.scrollFraction, 1);
     expect(session.fontSize, 32);
   });

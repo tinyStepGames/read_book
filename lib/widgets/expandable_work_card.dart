@@ -8,6 +8,7 @@ import '../utils/work_tags.dart';
 import '../widgets/favorite_star_button.dart';
 
 typedef SearchAuthorCallback = void Function(String author, String authorId);
+typedef BlockAuthorCallback = void Function(NarouSearchResult work);
 
 class ExpandableWorkCard extends StatefulWidget {
   final NarouSearchResult work;
@@ -18,6 +19,7 @@ class ExpandableWorkCard extends StatefulWidget {
   final VoidCallback? onDownload;
   final VoidCallback? onOpenDownloads;
   final SearchAuthorCallback? onSearchAuthor;
+  final BlockAuthorCallback? onBlockAuthor;
   final ValueChanged<String>? onSearchTag;
   final bool hasAnyRead;
   final bool hasAnyDownload;
@@ -34,6 +36,7 @@ class ExpandableWorkCard extends StatefulWidget {
     this.onDownload,
     this.onOpenDownloads,
     this.onSearchAuthor,
+    this.onBlockAuthor,
     this.onSearchTag,
     this.hasAnyRead = false,
     this.hasAnyDownload = false,
@@ -103,6 +106,13 @@ class _ExpandableWorkCardState extends State<ExpandableWorkCard> {
               child: Text('作者:${result.author}'),
             ),
             CupertinoActionSheetAction(
+              isDestructiveAction: true,
+              onPressed: () {
+                Navigator.pop(sheetContext, 'block_author');
+              },
+              child: const Text('この作者をブロック'),
+            ),
+            CupertinoActionSheetAction(
               onPressed: () {
                 Navigator.pop(sheetContext, 'tag');
               },
@@ -143,6 +153,8 @@ class _ExpandableWorkCardState extends State<ExpandableWorkCard> {
       widget.onDeleteRead?.call();
     } else if (selected == 'author') {
       widget.onSearchAuthor?.call(result.author, result.authorId);
+    } else if (selected == 'block_author') {
+      widget.onBlockAuthor?.call(result);
     } else if (selected == 'tag') {
       await _showTagMenu(tags);
     }
