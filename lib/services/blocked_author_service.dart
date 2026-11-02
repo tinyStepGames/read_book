@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 
 import '../models/site.dart';
@@ -69,6 +70,9 @@ class BlockedAuthorService {
   BlockedAuthorService._();
 
   static const String _storageKey = 'blocked_authors_v1';
+
+  /// ブロック一覧の変更を画面へ通知します。
+  static final ValueNotifier<int> revision = ValueNotifier<int>(0);
 
   static Box<dynamic>? get _box {
     if (!Hive.isBoxOpen(AppSessionService.boxName)) {
@@ -200,6 +204,8 @@ class BlockedAuthorService {
       _storageKey,
       values.map((entry) => entry.toMap()).toList(growable: false),
     );
+
+    revision.value++;
   }
 
   static String? _buildKey({

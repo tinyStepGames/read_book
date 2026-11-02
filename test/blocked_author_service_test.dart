@@ -104,4 +104,23 @@ void main() {
 
     expect(BlockedAuthorService.entries, isEmpty);
   });
+
+  test('ブロック変更を画面へ通知する', () async {
+    final beforeBlock = BlockedAuthorService.revision.value;
+
+    await BlockedAuthorService.block(
+      site: Site.kakuyomu,
+      authorId: 'notify-author',
+      authorName: '通知対象',
+    );
+
+    expect(BlockedAuthorService.revision.value, beforeBlock + 1);
+
+    final entry = BlockedAuthorService.entries.single;
+    final beforeUnblock = BlockedAuthorService.revision.value;
+
+    await BlockedAuthorService.unblock(entry.key);
+
+    expect(BlockedAuthorService.revision.value, beforeUnblock + 1);
+  });
 }

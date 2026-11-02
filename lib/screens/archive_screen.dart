@@ -11,7 +11,7 @@ import '../services/search_request_controller.dart';
 import '../utils/no_animation_route.dart';
 import 'reader_screen.dart';
 import 'work_detail_screen.dart';
-import '../services/backup_service.dart';
+
 import '../services/download_manager.dart';
 
 /// 書庫のトップ画面
@@ -28,136 +28,6 @@ class ArchiveScreen extends StatelessWidget {
     required this.searchRequestController,
     required this.onNavigateToSearch,
   });
-  Future<void> _createBackup(
-    BuildContext context,
-    Rect sharePositionOrigin,
-  ) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('バックアップを作成'),
-          content: const Text(
-            'ダウンロードした本文、お気に入り、履歴、'
-            '既読情報などをZIPファイルへ保存します。\n\n'
-            '表示される共有画面から「ファイルに保存」を選択してください。',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(dialogContext).pop(false);
-              },
-              child: const Text('キャンセル'),
-            ),
-            FilledButton(
-              onPressed: () {
-                Navigator.of(dialogContext).pop(true);
-              },
-              child: const Text('作成'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (confirmed != true || !context.mounted) return;
-
-    final messenger = ScaffoldMessenger.of(context);
-
-    try {
-      messenger.showSnackBar(const SnackBar(content: Text('バックアップを作成しています…')));
-
-      await BackupService().createAndShareBackup(
-        sharePositionOrigin: sharePositionOrigin,
-      );
-
-      if (!context.mounted) return;
-
-      messenger.hideCurrentSnackBar();
-      messenger.showSnackBar(
-        const SnackBar(content: Text('共有画面から「ファイルに保存」を選択してください。')),
-      );
-    } catch (error) {
-      if (!context.mounted) return;
-
-      messenger.hideCurrentSnackBar();
-      messenger.showSnackBar(
-        SnackBar(content: Text('バックアップの作成に失敗しました: $error')),
-      );
-    }
-  }
-
-  Future<void> _restoreBackup(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('バックアップから復元'),
-          content: const Text(
-            'バックアップ作成時点のデータへ戻します。\n\n'
-            '現在の作品情報、ダウンロード本文、お気に入り、'
-            '履歴、既読情報はバックアップ内のデータに置き換わります。\n\n'
-            '復元ファイルを選択しますか？',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(dialogContext).pop(false);
-              },
-              child: const Text('キャンセル'),
-            ),
-            FilledButton(
-              onPressed: () {
-                Navigator.of(dialogContext).pop(true);
-              },
-              child: const Text('ファイルを選択'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (confirmed != true || !context.mounted) return;
-
-    final messenger = ScaffoldMessenger.of(context);
-
-    try {
-      final staged = await BackupService().selectAndStageRestoreFile();
-
-      if (!context.mounted || !staged) return;
-
-      await showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (dialogContext) {
-          return AlertDialog(
-            title: const Text('復元の準備ができました'),
-            content: const Text(
-              'アプリを完全に終了してから、もう一度起動してください。\n\n'
-              '次回起動時にバックアップから自動的に復元します。\n\n'
-              'iPhoneでは、アプリ切り替え画面でこのアプリを'
-              '上へスワイプして終了してください。',
-            ),
-            actions: [
-              FilledButton(
-                onPressed: () {
-                  Navigator.of(dialogContext).pop();
-                },
-                child: const Text('OK'),
-              ),
-            ],
-          );
-        },
-      );
-    } catch (error) {
-      if (!context.mounted) return;
-
-      messenger.showSnackBar(
-        SnackBar(content: Text('バックアップを読み込めませんでした: $error')),
-      );
-    }
-  }
-
   Site? _siteOfWork(Work work) {
     if (work.siteIndex < 0 || work.siteIndex >= Site.values.length) {
       return null;
@@ -219,56 +89,7 @@ class ArchiveScreen extends StatelessWidget {
     final downloadBox = Hive.box<Download>('downloads');
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('書庫'),
-        actions: [
-          Builder(
-            builder: (menuContext) {
-              return PopupMenuButton<_ArchiveMenuAction>(
-                tooltip: 'バックアップ',
-                icon: const Icon(Icons.more_vert),
-                onSelected: (action) async {
-                  switch (action) {
-                    case _ArchiveMenuAction.createBackup:
-                      final renderBox =
-                          menuContext.findRenderObject() as RenderBox?;
-
-                      final sharePositionOrigin = renderBox == null
-                          ? const Rect.fromLTWH(0, 0, 1, 1)
-                          : renderBox.localToGlobal(Offset.zero) &
-                                renderBox.size;
-
-                      await _createBackup(menuContext, sharePositionOrigin);
-
-                    case _ArchiveMenuAction.restoreBackup:
-                      await _restoreBackup(menuContext);
-                  }
-                },
-                itemBuilder: (context) {
-                  return const [
-                    PopupMenuItem<_ArchiveMenuAction>(
-                      value: _ArchiveMenuAction.createBackup,
-                      child: ListTile(
-                        leading: Icon(Icons.backup_outlined),
-                        title: Text('バックアップを作成'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                    PopupMenuItem<_ArchiveMenuAction>(
-                      value: _ArchiveMenuAction.restoreBackup,
-                      child: ListTile(
-                        leading: Icon(Icons.restore_outlined),
-                        title: Text('バックアップから復元'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                  ];
-                },
-              );
-            },
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('書庫')),
 
       body: ValueListenableBuilder<Box<Download>>(
         valueListenable: downloadBox.listenable(),
@@ -884,8 +705,6 @@ class SiteArchiveScreen extends StatelessWidget {
     );
   }
 }
-
-enum _ArchiveMenuAction { createBackup, restoreBackup }
 
 enum _WorkMenuAction { openWorkDetail, searchByTag, deleteDownloads }
 
