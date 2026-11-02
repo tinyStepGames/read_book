@@ -215,13 +215,13 @@ class _FavoriteScreenState extends State<FavoriteScreen> {
         await fav.save();
         widget.searchRequestController.request(
           SearchRequest(
-  keyword: saved.keyword,
-  order: saved.order,
-  authorNameOnly: saved.authorNameOnly,
-  keywordOnly: saved.keywordOnly,
-  siteIndex: saved.siteIndex,
-)
-
+            keyword: saved.keyword,
+            order: saved.order,
+            authorNameOnly: saved.authorNameOnly,
+            keywordOnly: saved.keywordOnly,
+            siteIndex: saved.siteIndex,
+            filters: saved.filters,
+          ),
         );
         widget.onNavigateToSearch();
       },
