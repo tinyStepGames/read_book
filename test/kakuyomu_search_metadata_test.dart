@@ -121,5 +121,34 @@ void main() {
         1234,
       );
     });
+
+    test('新着ページの個別メタ要素を取得する', () {
+      final document = html_parser.parse('''
+        <div id="card" class="widget-work">
+          <div class="widget-catchphrase">
+            完結作品の紹介です。毎日1話投稿します。★999。
+          </div>
+          <p class="widget-workCard-meta">
+            <a class="widget-workCard-reviewPoints">★3</a>
+            <span class="widget-workCard-genre">現代ファンタジー</span>
+            <span class="widget-workCard-status">
+              <span class="widget-workCard-statusLabel">連載中</span>
+              <span class="widget-workCard-episodeCount">15話</span>
+            </span>
+            <span class="widget-workCard-characterCount">84,388文字</span>
+          </p>
+        </div>
+      ''');
+
+      final metadata = KakuyomuSearchMetadata.read(
+        document.querySelector('#card'),
+      );
+
+      expect(metadata.episodeCount, 15);
+      expect(metadata.characterCount, 84388);
+      expect(metadata.starCount, 3);
+      expect(metadata.serialStatus, KakuyomuSerialStatus.ongoing);
+      expect(metadata.isReliable, isTrue);
+    });
   });
 }

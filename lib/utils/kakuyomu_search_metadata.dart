@@ -103,6 +103,9 @@ abstract final class KakuyomuSearchMetadata {
     return container.querySelectorAll(
       '[class*="WorkMetaBasicInformation"] li, '
       '[class*="Meta_metaItem"], '
+      '.widget-workCard-reviewPoints, '
+      '.widget-workCard-status, '
+      '.widget-workCard-characterCount, '
       '.widget-workCard-meta li, '
       '.widget-workCard-metaItem, '
       '.widget-workCard-meta',
