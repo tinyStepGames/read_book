@@ -292,6 +292,13 @@ class KakuyomuScraper {
       }
 
       final metadata = KakuyomuSearchMetadata.read(container);
+
+      // 公式メタ情報を特定できないカードは、
+      // 紹介文やおすすめ欄を作品情報として誤認しないよう除外します。
+      if (!metadata.isReliable) {
+        continue;
+      }
+
       final episodeCount = metadata.episodeCount;
       final characterCount = metadata.characterCount;
       final starCount = metadata.starCount;

@@ -31,6 +31,7 @@ void main() {
       expect(metadata.characterCount, 576546);
       expect(metadata.starCount, 58);
       expect(metadata.serialStatus, KakuyomuSerialStatus.ongoing);
+      expect(metadata.isReliable, isTrue);
     });
 
     test('レビューの完結という語を無視して連載中と判定する', () {
@@ -101,6 +102,7 @@ void main() {
       expect(metadata.characterCount, 0);
       expect(metadata.starCount, 0);
       expect(metadata.serialStatus, KakuyomuSerialStatus.unknown);
+      expect(metadata.isReliable, isFalse);
     });
 
     test('カンマ区切りの話数を取得する', () {

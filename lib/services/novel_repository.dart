@@ -10,6 +10,7 @@ import '../models/read_mark.dart';
 import '../models/saved_search.dart';
 import '../models/site.dart';
 import '../models/work.dart';
+import '../utils/work_metadata_merger.dart';
 import 'illustration_storage_service.dart';
 import 'kakuyomu_scraper.dart';
 import 'narou_api_client.dart';
@@ -84,9 +85,10 @@ class NovelRepository {
   // ---------- Work ----------
 
   Work workFromNarouResult(NarouSearchResult result) {
+    final existing = _workBox.get(result.ncode);
     final parsedUpdatedAt = DateTime.tryParse(result.generalLastup);
 
-    return Work(
+    final incoming = Work(
       workId: result.ncode,
       siteIndex: result.site.index,
       title: result.title,
@@ -95,10 +97,16 @@ class NovelRepository {
       summary: result.summary,
       totalEpisodeCount: result.generalAllNo,
       checkedEpisodeCount: result.generalAllNo,
-      lastUpdatedAt: parsedUpdatedAt ?? DateTime.now(),
+      lastUpdatedAt:
+          parsedUpdatedAt ?? existing?.lastUpdatedAt ?? DateTime.now(),
       isCompleted: result.isCompleted,
       authorId: result.authorId,
       keyword: result.keyword,
+    );
+
+    return WorkMetadataMerger.mergeSearchResult(
+      incoming: incoming,
+      existing: existing,
     );
   }
 

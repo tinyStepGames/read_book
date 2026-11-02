@@ -16,6 +16,11 @@ class KakuyomuSearchMetadataValue {
     required this.starCount,
     required this.serialStatus,
   });
+
+  /// 話数と連載状態の両方を公式メタ情報から取得できたかを返します。
+  bool get isReliable {
+    return episodeCount > 0 && serialStatus != KakuyomuSerialStatus.unknown;
+  }
 }
 
 /// カクヨム検索結果カードのメタ情報を解析します。
