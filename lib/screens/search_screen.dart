@@ -318,12 +318,19 @@ class _SearchScreenState extends State<SearchScreen> {
     _authorNameOnly = request.authorNameOnly;
     _keywordOnly = request.keywordOnly;
     _kakuyomuAuthorId = null;
-    _filters = const SearchFilters();
+    _filters = request.filters;
 
     if (request.siteIndex >= 0 && request.siteIndex < Site.values.length) {
       _selectedSite = Site.values[request.siteIndex];
     } else {
       _selectedSite = Site.narou;
+    }
+
+    // カクヨムでは短編という連載状態を使用しません。
+    // 古いデータや不正なバックアップに短編指定があっても安全に補正します。
+    if (_selectedSite == Site.kakuyomu &&
+        _filters.serialStatus == SearchSerialStatus.shortStory) {
+      _filters = _filters.copyWith(serialStatus: SearchSerialStatus.all);
     }
 
     _history.clear();
@@ -551,6 +558,7 @@ class _SearchScreenState extends State<SearchScreen> {
           authorNameOnly: _authorNameOnly,
           keywordOnly: _keywordOnly,
           site: _selectedSite,
+          filters: _filters,
         ) !=
         null;
   }
@@ -571,6 +579,7 @@ class _SearchScreenState extends State<SearchScreen> {
       authorNameOnly: _authorNameOnly,
       keywordOnly: _keywordOnly,
       site: _selectedSite,
+      filters: _filters,
     );
 
     if (existing != null) {
@@ -590,6 +599,7 @@ class _SearchScreenState extends State<SearchScreen> {
         authorNameOnly: _authorNameOnly,
         keywordOnly: _keywordOnly,
         site: _selectedSite,
+        filters: _filters,
       );
 
       if (!mounted) {

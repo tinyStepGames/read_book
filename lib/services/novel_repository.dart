@@ -8,6 +8,7 @@ import '../models/favorite.dart';
 import '../models/favorite_color.dart';
 import '../models/read_mark.dart';
 import '../models/saved_search.dart';
+import '../models/search_filters.dart';
 import '../models/site.dart';
 import '../models/work.dart';
 import '../utils/work_metadata_merger.dart';
@@ -206,6 +207,7 @@ class NovelRepository {
     required bool authorNameOnly,
     required bool keywordOnly,
     Site site = Site.narou,
+    SearchFilters filters = const SearchFilters(),
   }) {
     for (final fav in savedSearchFavorites) {
       final saved = _savedSearchBox.get(fav.targetKey);
@@ -215,7 +217,8 @@ class NovelRepository {
           saved.keyword == keyword &&
           saved.order == order &&
           saved.authorNameOnly == authorNameOnly &&
-          saved.keywordOnly == keywordOnly) {
+          saved.keywordOnly == keywordOnly &&
+          saved.matchesFilters(filters)) {
         return fav;
       }
     }
@@ -229,6 +232,7 @@ class NovelRepository {
     bool authorNameOnly = false,
     bool keywordOnly = false,
     Site site = Site.narou,
+    SearchFilters filters = const SearchFilters(),
   }) async {
     final id = DateTime.now().microsecondsSinceEpoch.toString();
     final savedSearch = SavedSearch(
@@ -238,6 +242,10 @@ class NovelRepository {
       order: order,
       authorNameOnly: authorNameOnly,
       keywordOnly: keywordOnly,
+      serialStatusIndex: filters.serialStatus.index,
+      lengthPresetIndex: filters.lengthPreset.index,
+      customMinimumLength: filters.customMinimumLength,
+      customMaximumLength: filters.customMaximumLength,
     );
     await _savedSearchBox.put(id, savedSearch);
 
