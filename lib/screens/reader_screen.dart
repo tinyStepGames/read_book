@@ -16,7 +16,7 @@ class ReaderScreen extends StatefulWidget {
   final Work work;
   final int episodeNo;
   final String episodeTitle;
-  final double initialScrollFraction;
+  final double? initialScrollFraction;
   final double initialFontSize;
 
   const ReaderScreen({
@@ -25,7 +25,7 @@ class ReaderScreen extends StatefulWidget {
     required this.work,
     required this.episodeNo,
     required this.episodeTitle,
-    this.initialScrollFraction = 0,
+    this.initialScrollFraction,
     this.initialFontSize = 16,
   });
 
@@ -40,6 +40,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   late double _fontSize;
 
   late double _initialScrollFraction;
+  late double _lastKnownScrollFraction;
   bool _didRestoreInitialScroll = false;
   bool _appIsActive = true;
   Timer? _saveTimer;
@@ -64,7 +65,17 @@ class _ReaderScreenState extends State<ReaderScreen>
 
     _currentEpisodeNo = widget.episodeNo;
     _currentEpisodeTitle = widget.episodeTitle;
-    _initialScrollFraction = widget.initialScrollFraction.clamp(0.0, 1.0);
+    // 明示された復元位置を優先し、未指定なら同じ話の履歴を使います。
+    // 先頭へ戻す指定の0と、指定なしのnullを区別します。
+    final savedHistory = Hive.box<HistoryEntry>(
+      'history',
+    ).get('${widget.work.workId}_${widget.episodeNo}');
+    final initialFraction =
+        widget.initialScrollFraction ?? savedHistory?.scrollFraction ?? 0.0;
+    _initialScrollFraction = initialFraction.isFinite
+        ? initialFraction.clamp(0.0, 1.0)
+        : 0.0;
+    _lastKnownScrollFraction = _initialScrollFraction;
     _fontSize = widget.initialFontSize.clamp(10.0, 32.0);
 
     unawaited(widget.repository.saveWork(widget.work));
@@ -95,11 +106,15 @@ class _ReaderScreenState extends State<ReaderScreen>
     _saveTimer?.cancel();
 
     if (_appIsActive) {
-      // アプリ使用中に戻る操作でReaderを閉じた場合は、
-      // 次回起動時にReaderを強制復元しません。
+      // スクロールの保存待ち中に閉じても最後の位置を履歴へ残します。
+      // dispose時にはScrollControllerが既に切り離されている場合が
+      // あるため、スクロール中に保持した値を使います。
+      unawaited(_saveHistory(scrollFraction: _lastKnownScrollFraction));
+
+      // 通常の戻る操作では、次回起動時のReader強制復元はしません。
       unawaited(AppSessionService.clearReader());
     } else {
-      unawaited(_persistReadingState());
+      unawaited(_persistReadingState(scrollFraction: _lastKnownScrollFraction));
     }
 
     WidgetsBinding.instance.removeObserver(this);
@@ -117,6 +132,12 @@ class _ReaderScreenState extends State<ReaderScreen>
   ///   スクロール位置が大きくなるのでツールバーを非表示。
   /// スクロール方向に応じてツールバーを表示・非表示にする。
   double get _currentScrollFraction {
+    // 読み込み中や初期復元前の一時的な先頭位置で、
+    // 保存済み位置を上書きしません。
+    if (_isLoading || !_didRestoreInitialScroll) {
+      return _initialScrollFraction;
+    }
+
     if (!_scrollController.hasClients) {
       return _initialScrollFraction;
     }
@@ -149,12 +170,13 @@ class _ReaderScreenState extends State<ReaderScreen>
     );
   }
 
-  Future<void> _persistReadingState() async {
-    final scrollFraction = _currentScrollFraction;
+  Future<void> _persistReadingState({double? scrollFraction}) async {
+    final fraction = scrollFraction ?? _currentScrollFraction;
+    _lastKnownScrollFraction = fraction;
 
     await Future.wait<void>([
-      _saveHistory(scrollFraction: scrollFraction),
-      _saveReaderSession(scrollFraction),
+      _saveHistory(scrollFraction: fraction),
+      _saveReaderSession(fraction),
     ]);
   }
 
@@ -197,6 +219,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     // ツールバーが表示・非表示を繰り返して画面がちらつく。
     if (position.outOfRange) return;
 
+    _lastKnownScrollFraction = _currentScrollFraction;
     _scheduleReadingStateSave();
 
     final currentOffset = position.pixels;
@@ -428,6 +451,7 @@ class _ReaderScreenState extends State<ReaderScreen>
 
     // 次話・前話も履歴と復元情報に記録する
     _initialScrollFraction = 0;
+    _lastKnownScrollFraction = 0;
     _didRestoreInitialScroll = true;
 
     await _saveHistory(scrollFraction: 0);
