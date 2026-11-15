@@ -2,6 +2,47 @@ import '../models/work.dart';
 
 /// 検索結果から作られた作品情報を、保存済み情報へ安全に統合します。
 abstract final class WorkMetadataMerger {
+  /// 正式な作品詳細を、端末側の確認状態を維持して統合します。
+  ///
+  /// 呼び出し側は、同じ作品について取得した正式な詳細情報を渡します。
+  /// 未取得の文字列は空文字またはnullで表し、既存値を維持します。
+  /// 空のあらすじ・タグによる明示的な削除には対応しません。
+  /// 入力は変更せず、未保存の新しいWorkを返します。
+  static Work mergeRefreshedDetails({
+    required Work incoming,
+    required Work existing,
+  }) {
+    if (existing.workId.trim().isEmpty ||
+        incoming.workId.trim().isEmpty ||
+        incoming.workId != existing.workId ||
+        incoming.siteIndex != existing.siteIndex) {
+      throw ArgumentError('更新する作品のIDまたはサイトが一致しません。');
+    }
+
+    return Work(
+      workId: existing.workId,
+      siteIndex: existing.siteIndex,
+      title: _preferNonEmpty(incoming.title, existing.title),
+      author: _preferNonEmpty(incoming.author, existing.author),
+      genre: _preferNonEmpty(incoming.genre, existing.genre),
+      // 検索結果とは異なり、短く修正された正式なあらすじも反映します。
+      summary: _preferNonEmpty(incoming.summary, existing.summary),
+      totalEpisodeCount: _maximumPositive(
+        incoming.totalEpisodeCount,
+        existing.totalEpisodeCount,
+      ),
+      // 作品情報の取得を「読者が新着を確認した」扱いにはしません。
+      checkedEpisodeCount: existing.checkedEpisodeCount,
+      lastUpdatedAt: incoming.lastUpdatedAt.isAfter(existing.lastUpdatedAt)
+          ? incoming.lastUpdatedAt
+          : existing.lastUpdatedAt,
+      isCompleted: incoming.isCompleted,
+      firstOpenedAt: existing.firstOpenedAt,
+      authorId: _preferNullableNonEmpty(incoming.authorId, existing.authorId),
+      keyword: _preferNullableNonEmpty(incoming.keyword, existing.keyword),
+    );
+  }
+
   static Work mergeSearchResult({
     required Work incoming,
     required Work? existing,
