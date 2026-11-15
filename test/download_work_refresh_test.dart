@@ -127,7 +127,7 @@ void main() {
     expect(client.bodyCalls, [1]);
     expect(result.updatedCount, 1);
     expect(result.skippedCount, 1);
-    expect(result.unchangedCount, 1);
+    expect(result.titleUpdatedCount, 1);
     expect(downloads.containsKey('n3380le_4'), isFalse);
   });
 
@@ -222,7 +222,7 @@ void main() {
     ];
 
     final normal = await repository.refreshDownloadedWork(work: work);
-    expect(normal.unchangedCount, 3);
+    expect(normal.titleUpdatedCount, 3);
     expect(client.bodyCalls, isEmpty);
 
     final forced = await repository.refreshDownloadedWork(

@@ -3,7 +3,14 @@ import 'download_refresh_planner.dart';
 
 typedef RefreshDownloadedItem = Future<bool> Function(DownloadRefreshItem item);
 
-enum DownloadRefreshOutcome { updated, failed, skipped, unchanged, canceled }
+enum DownloadRefreshOutcome {
+  updated,
+  titleUpdated,
+  failed,
+  skipped,
+  unchanged,
+  canceled,
+}
 
 class DownloadRefreshItemResult {
   const DownloadRefreshItemResult({required this.item, required this.outcome});
@@ -22,6 +29,7 @@ class DownloadRefreshBatchResult {
       items.where((item) => item.outcome == outcome).length;
 
   int get updatedCount => _count(DownloadRefreshOutcome.updated);
+  int get titleUpdatedCount => _count(DownloadRefreshOutcome.titleUpdated);
   int get failedCount => _count(DownloadRefreshOutcome.failed);
   int get skippedCount => _count(DownloadRefreshOutcome.skipped);
   int get unchangedCount => _count(DownloadRefreshOutcome.unchanged);
@@ -62,6 +70,8 @@ class DownloadRefreshRunner {
     required String workId,
     required DownloadRefreshPlan plan,
     required RefreshDownloadedItem refreshItem,
+    Future<DownloadRefreshOutcome> Function(DownloadRefreshItem item)?
+    refreshUnchangedItem,
     DownloadRefreshCancellation? cancellation,
     void Function(int completed, int total)? onProgress,
   }) async {
@@ -116,7 +126,21 @@ class DownloadRefreshRunner {
         DownloadRefreshOutcome outcome;
 
         if (item.decision == DownloadRefreshDecision.unchanged) {
-          outcome = DownloadRefreshOutcome.unchanged;
+          if (refreshUnchangedItem == null) {
+            outcome = DownloadRefreshOutcome.unchanged;
+          } else {
+            try {
+              outcome = await refreshUnchangedItem(item);
+              if (outcome != DownloadRefreshOutcome.titleUpdated &&
+                  outcome != DownloadRefreshOutcome.unchanged &&
+                  outcome != DownloadRefreshOutcome.skipped) {
+                throw StateError('タイトル更新の処理結果が不正です。');
+              }
+            } catch (error) {
+              AppLog.failure('保存済み各話タイトルの更新に失敗しました', error);
+              outcome = DownloadRefreshOutcome.failed;
+            }
+          }
         } else if (item.decision != DownloadRefreshDecision.refresh) {
           outcome = DownloadRefreshOutcome.skipped;
         } else {

@@ -875,6 +875,44 @@ class NovelRepository {
         plan: plan,
         cancellation: cancellation,
         onProgress: onProgress,
+        refreshUnchangedItem: (item) async {
+          if (!sameDownload(item.episodeNo)) {
+            return DownloadRefreshOutcome.skipped;
+          }
+
+          final original = originalsByNumber[item.episodeNo]!;
+          final snapshot = snapshotsByNumber[item.episodeNo]!;
+          final latestId = (item.latestEntry['sourceId'] ?? '').trim();
+          final latestStamp = (item.latestEntry['sourceUpdatedAt'] ?? '')
+              .trim();
+
+          if (latestId.isEmpty ||
+              latestId != snapshot.sourceId.trim() ||
+              latestStamp.isEmpty ||
+              latestStamp != snapshot.sourceUpdatedAt.trim()) {
+            return DownloadRefreshOutcome.skipped;
+          }
+
+          final title = (item.latestEntry['title'] ?? '').trim();
+          if (title.isEmpty || title == original.episodeTitle) {
+            return DownloadRefreshOutcome.unchanged;
+          }
+
+          // 本文と本文の版情報は変えず、タイトルだけを差し替えます。
+          final replacement = Download(
+            workId: snapshot.workId,
+            episodeNo: snapshot.episodeNo,
+            episodeTitle: title,
+            body: snapshot.body,
+            downloadedAt: snapshot.downloadedAt,
+            publishedAt: snapshot.publishedAt,
+            sourceId: snapshot.sourceId,
+            sourceUpdatedAt: snapshot.sourceUpdatedAt,
+          );
+
+          await _downloadBox.put(_key(workId, item.episodeNo), replacement);
+          return DownloadRefreshOutcome.titleUpdated;
+        },
         refreshItem: (item) async {
           // 前の話を処理している間に変わったデータも上書きしません。
           if (!sameDownload(item.episodeNo)) {
