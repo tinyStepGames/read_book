@@ -1,7 +1,7 @@
 name: read_book
 description: "A personal novel reader app."
 publish_to: 'none'
-version: 1.4.5+22
+version: 1.5.0+23
 environment:
   sdk: '^3.12.0'
 
