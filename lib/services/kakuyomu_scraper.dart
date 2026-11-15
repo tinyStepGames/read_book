@@ -16,6 +16,7 @@ import '../utils/remote_response_guard.dart';
 import '../utils/search_query_parser.dart';
 import '../utils/work_tags.dart';
 
+import 'kakuyomu_work_metadata.dart';
 import 'narou_api_client.dart';
 
 /// カクヨム作品ページから取得した詳細情報
@@ -77,29 +78,61 @@ class _CachedWorkPage {
 }
 
 class KakuyomuScraper {
-  KakuyomuScraper()
-    : _dio = Dio(
-        BaseOptions(
-          responseType: ResponseType.plain,
-          connectTimeout: const Duration(seconds: 20),
-          receiveTimeout: const Duration(seconds: 30),
-          sendTimeout: const Duration(seconds: 20),
-          headers: const {
-            'User-Agent':
-                'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) '
-                'AppleWebKit/605.1.15 (KHTML, like Gecko) '
-                'Version/17.0 Mobile/15E148 Safari/604.1',
-            'Accept':
-                'text/html,application/xhtml+xml,'
-                'application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
-          },
-        ),
-      ) {
+  KakuyomuScraper({Dio? dio})
+    : _dio =
+          dio ??
+          Dio(
+            BaseOptions(
+              responseType: ResponseType.plain,
+              connectTimeout: const Duration(seconds: 20),
+              receiveTimeout: const Duration(seconds: 30),
+              sendTimeout: const Duration(seconds: 20),
+              headers: const {
+                'User-Agent':
+                    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) '
+                    'AppleWebKit/605.1.15 (KHTML, like Gecko) '
+                    'Version/17.0 Mobile/15E148 Safari/604.1',
+                'Accept':
+                    'text/html,application/xhtml+xml,'
+                    'application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
+              },
+            ),
+          ) {
     RemoteResponseGuard.install(_dio, allowedHosts: const {'kakuyomu.jp'});
   }
 
   final Dio _dio;
+
+  /// 更新専用に作品情報をAPIから取得します。
+  ///
+  /// HTMLへのフォールバックや作品ページのキャッシュは使いません。
+  /// 不正な応答や通信失敗は呼び出し側へ返します。
+  Future<KakuyomuWorkMetadata> fetchWorkMetadata(String workId) async {
+    if (!RegExp(r'^[1-9][0-9]*$').hasMatch(workId)) {
+      throw const FormatException('カクヨムの作品IDが不正です。');
+    }
+
+    final response = await _dio.get<String>(
+      'https://kakuyomu.jp/api/app/works/$workId',
+      options: Options(
+        responseType: ResponseType.plain,
+        headers: const {'Accept': 'application/json'},
+      ),
+    );
+
+    final raw = response.data;
+    if (raw == null || raw.trim().isEmpty) {
+      throw const FormatException('カクヨムAPIの応答が空です。');
+    }
+
+    final decoded = jsonDecode(raw);
+    if (decoded is! Map<String, dynamic>) {
+      throw const FormatException('カクヨムAPIの応答形式が不正です。');
+    }
+
+    return KakuyomuWorkMetadata.fromJson(decoded, expectedWorkId: workId);
+  }
 
   /// workId → 話数 → episodeId
   final Map<String, Map<int, String>> _episodeIdCache = {};

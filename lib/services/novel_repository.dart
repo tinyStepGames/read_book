@@ -40,6 +40,105 @@ class NovelRepository {
   final Set<String> _refreshingWorkIds = <String>{};
   final Set<String> _refreshingMetadataWorkIds = <String>{};
 
+  /// 登録済みのカクヨム作品情報を取得し、安全に統合して保存します。
+  ///
+  /// trueは保存完了、falseは取得中の削除・変更による保留です。
+  /// 通信失敗・不正応答・未登録・重複実行は例外で返します。
+  Future<bool> refreshStoredKakuyomuWorkDetails({required Work work}) async {
+    final workId = work.workId;
+    final siteIndex = work.siteIndex;
+
+    if (siteIndex != Site.kakuyomu.index ||
+        !RegExp(r'^[1-9][0-9]*$').hasMatch(workId)) {
+      throw ArgumentError('更新対象のカクヨム作品情報が不正です。');
+    }
+
+    if (!_refreshingMetadataWorkIds.add(workId)) {
+      throw StateError('この作品の情報更新はすでに実行中です。');
+    }
+
+    try {
+      final original = _workBox.get(workId);
+      if (original == null ||
+          original.workId != workId ||
+          original.siteIndex != siteIndex) {
+        throw StateError('更新対象の作品が登録されていません。');
+      }
+
+      final snapshot = Work(
+        workId: original.workId,
+        siteIndex: original.siteIndex,
+        title: original.title,
+        author: original.author,
+        genre: original.genre,
+        summary: original.summary,
+        totalEpisodeCount: original.totalEpisodeCount,
+        checkedEpisodeCount: original.checkedEpisodeCount,
+        lastUpdatedAt: original.lastUpdatedAt,
+        isCompleted: original.isCompleted,
+        firstOpenedAt: original.firstOpenedAt,
+        authorId: original.authorId,
+        keyword: original.keyword,
+      );
+
+      bool stillCurrent() {
+        final current = _workBox.get(workId);
+        return work.workId == workId &&
+            work.siteIndex == siteIndex &&
+            identical(current, original) &&
+            current != null &&
+            current.workId == snapshot.workId &&
+            current.siteIndex == snapshot.siteIndex &&
+            current.title == snapshot.title &&
+            current.author == snapshot.author &&
+            current.genre == snapshot.genre &&
+            current.summary == snapshot.summary &&
+            current.totalEpisodeCount == snapshot.totalEpisodeCount &&
+            current.checkedEpisodeCount == snapshot.checkedEpisodeCount &&
+            current.lastUpdatedAt == snapshot.lastUpdatedAt &&
+            current.isCompleted == snapshot.isCompleted &&
+            current.firstOpenedAt == snapshot.firstOpenedAt &&
+            current.authorId == snapshot.authorId &&
+            current.keyword == snapshot.keyword;
+      }
+
+      final details = await kakuyomuScraper.fetchWorkMetadata(workId);
+
+      if (!stillCurrent()) {
+        return false;
+      }
+      if (details.workId != workId) {
+        throw const FormatException('カクヨムの作品IDが一致しません。');
+      }
+
+      final incoming = Work(
+        workId: workId,
+        siteIndex: siteIndex,
+        title: details.title,
+        author: details.author,
+        genre: details.genre,
+        summary: details.summary,
+        totalEpisodeCount: details.episodeCount,
+        checkedEpisodeCount: snapshot.checkedEpisodeCount,
+        // APIの作品編集日時を本文の更新日時として流用しません。
+        lastUpdatedAt: snapshot.lastUpdatedAt,
+        isCompleted: details.isCompleted,
+        authorId: details.authorId,
+        keyword: details.keyword,
+      );
+
+      final replacement = WorkMetadataMerger.mergeRefreshedDetails(
+        incoming: incoming,
+        existing: snapshot,
+      );
+
+      await _workBox.put(workId, replacement);
+      return true;
+    } finally {
+      _refreshingMetadataWorkIds.remove(workId);
+    }
+  }
+
   /// 登録済みのなろう作品情報を取得し、端末側の確認状態を維持して保存します。
   ///
   /// trueは保存完了、falseは取得中の削除・変更による保留です。
