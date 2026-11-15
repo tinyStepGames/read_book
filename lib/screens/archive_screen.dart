@@ -89,43 +89,48 @@ class ArchiveScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final downloadBox = Hive.box<Download>('downloads');
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('書庫')),
+    return ListenableBuilder(
+      listenable: Hive.box<Work>('works').listenable(),
+      builder: (context, _) {
+        return Scaffold(
+          appBar: AppBar(title: const Text('書庫')),
 
-      body: ValueListenableBuilder<Box<Download>>(
-        valueListenable: downloadBox.listenable(),
-        builder: (context, box, _) {
-          final totalDownloads = box.length;
+          body: ValueListenableBuilder<Box<Download>>(
+            valueListenable: downloadBox.listenable(),
+            builder: (context, box, _) {
+              final totalDownloads = box.length;
 
-          return ListView(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-                child: Text(
-                  totalDownloads == 0
-                      ? 'ダウンロードした作品はありません'
-                      : 'ダウンロード済み: $totalDownloads話',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodySmall?.copyWith(color: Colors.grey),
-                ),
-              ),
-              for (final site in Site.values)
-                _ArchiveFolderTile(
-                  label: site.displayName,
-                  icon: _siteIcon(site),
-                  color: _siteColor(site),
-                  workCount: _workCountForSite(box, site),
-                  episodeCount: _downloadsForSite(box, site).length,
-                  onTap: () {
-                    _openSiteFolder(context, site);
-                  },
-                ),
-            ],
-          );
-        },
-      ),
+              return ListView(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                    child: Text(
+                      totalDownloads == 0
+                          ? 'ダウンロードした作品はありません'
+                          : 'ダウンロード済み: $totalDownloads話',
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodySmall?.copyWith(color: Colors.grey),
+                    ),
+                  ),
+                  for (final site in Site.values)
+                    _ArchiveFolderTile(
+                      label: site.displayName,
+                      icon: _siteIcon(site),
+                      color: _siteColor(site),
+                      workCount: _workCountForSite(box, site),
+                      episodeCount: _downloadsForSite(box, site).length,
+                      onTap: () {
+                        _openSiteFolder(context, site);
+                      },
+                    ),
+                ],
+              );
+            },
+          ),
+        );
+      },
     );
   }
 }
@@ -515,194 +520,208 @@ class SiteArchiveScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final box = Hive.box<Download>('downloads');
 
-    return Scaffold(
-      appBar: AppBar(title: Text('${site.displayName}の書庫')),
-      body: ValueListenableBuilder<Box<Download>>(
-        valueListenable: box.listenable(),
-        builder: (context, downloadBox, _) {
-          final works = _downloadedWorks(downloadBox);
+    return ListenableBuilder(
+      listenable: Hive.box<Work>('works').listenable(),
+      builder: (context, _) {
+        return Scaffold(
+          appBar: AppBar(title: Text('${site.displayName}の書庫')),
+          body: ValueListenableBuilder<Box<Download>>(
+            valueListenable: box.listenable(),
+            builder: (context, downloadBox, _) {
+              final works = _downloadedWorks(downloadBox);
 
-          if (works.isEmpty) {
-            return Center(
-              child: Text(
-                '${site.displayName}で\n'
-                'ダウンロードした作品はありません',
-                textAlign: TextAlign.center,
-              ),
-            );
-          }
-
-          return ListView.separated(
-            itemCount: works.length,
-            separatorBuilder: (_, __) {
-              return const Divider(height: 1);
-            },
-            itemBuilder: (context, index) {
-              final work = works[index];
-
-              final downloadedCount = _downloadCount(downloadBox, work.workId);
-
-              return GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () {
-                  _openWork(context, work);
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
+              if (works.isEmpty) {
+                return Center(
+                  child: Text(
+                    '${site.displayName}で\n'
+                    'ダウンロードした作品はありません',
+                    textAlign: TextAlign.center,
                   ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.only(top: 2),
-                        child: Icon(
-                          Icons.folder_outlined,
-                          size: 34,
-                          color: site == Site.narou ? Colors.teal : Colors.blue,
-                        ),
+                );
+              }
+
+              return ListView.separated(
+                itemCount: works.length,
+                separatorBuilder: (_, __) {
+                  return const Divider(height: 1);
+                },
+                itemBuilder: (context, index) {
+                  final work = works[index];
+
+                  final downloadedCount = _downloadCount(
+                    downloadBox,
+                    work.workId,
+                  );
+
+                  return GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () {
+                      _openWork(context, work);
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              work.title,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                              ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Icon(
+                              Icons.folder_outlined,
+                              size: 34,
+                              color: site == Site.narou
+                                  ? Colors.teal
+                                  : Colors.blue,
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              '作:${work.author}　'
-                              'サイト:${site.displayName}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey[500],
-                              ),
-                            ),
-                            const SizedBox(height: 3),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 3,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  work.isCompleted ? '完結' : '連載中',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: work.isCompleted
-                                        ? Colors.grey
-                                        : Colors.teal,
+                                  work.title,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
                                   ),
                                 ),
-                                if (work.genre.isNotEmpty)
-                                  Text(
-                                    'ジャンル:${work.genre}',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: Colors.grey[500],
-                                    ),
-                                  ),
+                                const SizedBox(height: 4),
                                 Text(
-                                  '$downloadedCount話ダウンロード済み',
+                                  '作:${work.author}　'
+                                  'サイト:${site.displayName}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
-                                    fontSize: 11,
-                                    color: site == Site.narou
-                                        ? Colors.teal[300]
-                                        : Colors.blue[300],
+                                    fontSize: 12,
+                                    color: Colors.grey[500],
                                   ),
                                 ),
-                              ],
-                            ),
-                            if ((html_parser.parseFragment(work.summary).text ??
-                                    '')
-                                .trim()
-                                .isNotEmpty) ...[
-                              const SizedBox(height: 7),
-                              Text(
-                                (html_parser.parseFragment(work.summary).text ??
-                                        '')
-                                    .trim(),
-                                maxLines: 3,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  height: 1.4,
-                                  color: Theme.of(context)
-                                      .textTheme
-                                      .bodyMedium
-                                      ?.color
-                                      ?.withValues(alpha: 0.75),
-                                ),
-                              ),
-                            ],
-                            if (work.tags.isNotEmpty) ...[
-                              const SizedBox(height: 7),
-                              Wrap(
-                                spacing: 7,
-                                runSpacing: 4,
-                                children: work.tags
-                                    .where((tag) => tag.trim().isNotEmpty)
-                                    .take(8)
-                                    .map(
-                                      (tag) => Text(
-                                        '#$tag',
+                                const SizedBox(height: 3),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 3,
+                                  children: [
+                                    Text(
+                                      work.isCompleted ? '完結' : '連載中',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: work.isCompleted
+                                            ? Colors.grey
+                                            : Colors.teal,
+                                      ),
+                                    ),
+                                    if (work.genre.isNotEmpty)
+                                      Text(
+                                        'ジャンル:${work.genre}',
                                         style: TextStyle(
                                           fontSize: 11,
-                                          color: site == Site.narou
-                                              ? Colors.teal[300]
-                                              : Colors.blue[300],
+                                          color: Colors.grey[500],
                                         ),
                                       ),
-                                    )
-                                    .toList(),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 4),
+                                    Text(
+                                      '$downloadedCount話ダウンロード済み',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: site == Site.narou
+                                            ? Colors.teal[300]
+                                            : Colors.blue[300],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                if ((html_parser
+                                            .parseFragment(work.summary)
+                                            .text ??
+                                        '')
+                                    .trim()
+                                    .isNotEmpty) ...[
+                                  const SizedBox(height: 7),
+                                  Text(
+                                    (html_parser
+                                                .parseFragment(work.summary)
+                                                .text ??
+                                            '')
+                                        .trim(),
+                                    maxLines: 3,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      height: 1.4,
+                                      color: Theme.of(context)
+                                          .textTheme
+                                          .bodyMedium
+                                          ?.color
+                                          ?.withValues(alpha: 0.75),
+                                    ),
+                                  ),
+                                ],
+                                if (work.tags.isNotEmpty) ...[
+                                  const SizedBox(height: 7),
+                                  Wrap(
+                                    spacing: 7,
+                                    runSpacing: 4,
+                                    children: work.tags
+                                        .where((tag) => tag.trim().isNotEmpty)
+                                        .take(8)
+                                        .map(
+                                          (tag) => Text(
+                                            '#$tag',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              color: site == Site.narou
+                                                  ? Colors.teal[300]
+                                                  : Colors.blue[300],
+                                            ),
+                                          ),
+                                        )
+                                        .toList(),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 4),
 
-                      // 三点リーダー
-                      GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: () {
-                          _showWorkMenu(context, work);
-                        },
-                        child: SizedBox(
-                          width: 40,
-                          height: 44,
-                          child: Center(
+                          // 三点リーダー
+                          GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () {
+                              _showWorkMenu(context, work);
+                            },
+                            child: SizedBox(
+                              width: 40,
+                              height: 44,
+                              child: Center(
+                                child: Icon(
+                                  Icons.more_vert,
+                                  color: Colors.grey[500],
+                                ),
+                              ),
+                            ),
+                          ),
+
+                          Padding(
+                            padding: const EdgeInsets.only(top: 10),
                             child: Icon(
-                              Icons.more_vert,
+                              Icons.chevron_right,
                               color: Colors.grey[500],
                             ),
                           ),
-                        ),
+                        ],
                       ),
-
-                      Padding(
-                        padding: const EdgeInsets.only(top: 10),
-                        child: Icon(
-                          Icons.chevron_right,
-                          color: Colors.grey[500],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                    ),
+                  );
+                },
               );
             },
-          );
-        },
-      ),
+          ),
+        );
+      },
     );
   }
 }
@@ -737,7 +756,104 @@ class _DownloadedWorkScreenState extends State<DownloadedWorkScreen> {
 
   NovelRepository get repository => widget.repository;
 
-  Work get work => widget.work;
+  Work get work {
+    final stored = repository.getWork(widget.work.workId);
+    if (stored != null &&
+        stored.workId == widget.work.workId &&
+        stored.siteIndex == widget.work.siteIndex) {
+      return stored;
+    }
+    return widget.work;
+  }
+
+  bool _isRefreshingWorkInformation = false;
+
+  Future<void> _refreshWorkInformation() async {
+    if (_isFetchingEpisodeList || _isRefreshingWorkInformation) {
+      return;
+    }
+
+    final repository = widget.repository;
+    final input = widget.work;
+    final workId = input.workId;
+    final siteIndex = input.siteIndex;
+
+    void notify(String message) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    }
+
+    if (DownloadManager.instance.isDownloading(workId)) {
+      notify('ダウンロード中は作品情報を更新できません');
+      return;
+    }
+    if (siteIndex < 0 || siteIndex >= Site.values.length) {
+      notify('作品の掲載サイト情報が不正です');
+      return;
+    }
+
+    setState(() {
+      _isRefreshingWorkInformation = true;
+    });
+
+    try {
+      final stored = repository.getWork(workId);
+      if (stored == null ||
+          stored.workId != workId ||
+          stored.siteIndex != siteIndex) {
+        notify('更新対象の作品が登録されていません');
+        return;
+      }
+
+      final saved = switch (Site.values[siteIndex]) {
+        Site.narou => await repository.refreshStoredNarouWorkDetails(
+          work: stored,
+        ),
+        Site.kakuyomu => await repository.refreshStoredKakuyomuWorkDetails(
+          work: stored,
+        ),
+      };
+
+      if (!mounted ||
+          !identical(widget.repository, repository) ||
+          !identical(widget.work, input)) {
+        return;
+      }
+      if (!saved) {
+        notify('作品情報が変更されたため更新を見送りました');
+        return;
+      }
+
+      final latest = repository.getWork(workId);
+      if (latest == null ||
+          latest.workId != workId ||
+          latest.siteIndex != siteIndex) {
+        notify('保存後の作品情報を確認できませんでした');
+        return;
+      }
+
+      setState(() {
+        // この操作では目次を再取得せず、保存済みの総話数を表示します。
+        _onlineEpisodeCount = null;
+      });
+      notify('作品情報を更新しました');
+    } catch (error) {
+      AppLog.failure('書庫の作品情報更新に失敗しました', error);
+      if (!mounted ||
+          !identical(widget.repository, repository) ||
+          !identical(widget.work, input)) {
+        return;
+      }
+      notify('作品情報を更新できませんでした');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isRefreshingWorkInformation = false;
+        });
+      }
+    }
+  }
 
   @override
   void initState() {
@@ -1024,6 +1140,9 @@ class _DownloadedWorkScreenState extends State<DownloadedWorkScreen> {
   }
 
   Future<void> _openReader(BuildContext context, Download download) async {
+    if (_isRefreshingWorkInformation) {
+      return;
+    }
     await Navigator.of(context).push<void>(
       noAnimationRoute<void>(
         ReaderScreen(
@@ -1039,6 +1158,9 @@ class _DownloadedWorkScreenState extends State<DownloadedWorkScreen> {
   }
 
   Future<void> _deleteEpisode(BuildContext context, Download download) async {
+    if (_isRefreshingWorkInformation) {
+      return;
+    }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
@@ -1067,7 +1189,9 @@ class _DownloadedWorkScreenState extends State<DownloadedWorkScreen> {
         );
       },
     );
-    if (confirmed != true) return;
+    if (confirmed != true || !mounted || _isRefreshingWorkInformation) {
+      return;
+    }
 
     await repository.deleteDownloadedEpisode(
       workId: download.workId,
@@ -1083,6 +1207,9 @@ class _DownloadedWorkScreenState extends State<DownloadedWorkScreen> {
   }
 
   Future<void> _confirmAndDeleteAllDownloads() async {
+    if (_isRefreshingWorkInformation) {
+      return;
+    }
     final manager = DownloadManager.instance;
 
     if (manager.isDownloading(work.workId)) {
@@ -1141,7 +1268,10 @@ class _DownloadedWorkScreenState extends State<DownloadedWorkScreen> {
       return;
     }
 
-    // 確認中にダウンロードが始まった場合も削除しません。
+    // 確認中に作品情報更新やダウンロードが始まった場合も削除しません。
+    if (_isRefreshingWorkInformation) {
+      return;
+    }
     if (manager.isDownloading(work.workId)) {
       ScaffoldMessenger.of(
         context,
@@ -1177,7 +1307,7 @@ class _DownloadedWorkScreenState extends State<DownloadedWorkScreen> {
   }
 
   Future<void> _confirmAndDownloadMissing() async {
-    if (_isFetchingEpisodeList) {
+    if (_isFetchingEpisodeList || _isRefreshingWorkInformation) {
       return;
     }
 
@@ -1310,331 +1440,381 @@ class _DownloadedWorkScreenState extends State<DownloadedWorkScreen> {
     final box = Hive.box<Download>('downloads');
     final site = _siteOfWork();
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(work.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-        actions: [
-          IconButton(
-            tooltip: '不足分をダウンロード',
-            onPressed: _isFetchingEpisodeList
-                ? null
-                : _confirmAndDownloadMissing,
-            icon: _isFetchingEpisodeList
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.download),
-          ),
-          StreamBuilder<DownloadProgress>(
-            stream: DownloadManager.instance.progressStream,
-            builder: (context, _) {
-              final hasDownloads = repository.hasAnyDownload(work.workId);
-              final isDownloading = DownloadManager.instance.isDownloading(
-                work.workId,
-              );
-
-              return IconButton(
-                tooltip: isDownloading ? 'ダウンロード中は削除できません' : 'ダウンロードファイルを削除',
+    return ListenableBuilder(
+      listenable: Hive.box<Work>('works').listenable(),
+      builder: (context, _) {
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(
+              work.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            actions: [
+              StreamBuilder<DownloadProgress>(
+                stream: DownloadManager.instance.progressStream,
+                builder: (context, _) {
+                  final isDownloading = DownloadManager.instance.isDownloading(
+                    work.workId,
+                  );
+                  return IconButton(
+                    key: const ValueKey('archive-refresh-work-information'),
+                    tooltip: _isRefreshingWorkInformation
+                        ? '作品情報を更新中…'
+                        : '作品情報を更新',
+                    onPressed:
+                        _isFetchingEpisodeList ||
+                            _isRefreshingWorkInformation ||
+                            isDownloading
+                        ? null
+                        : _refreshWorkInformation,
+                    icon: _isRefreshingWorkInformation
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.refresh),
+                  );
+                },
+              ),
+              IconButton(
+                tooltip: '不足分をダウンロード',
                 onPressed:
-                    _isFetchingEpisodeList || !hasDownloads || isDownloading
+                    _isFetchingEpisodeList || _isRefreshingWorkInformation
                     ? null
-                    : _confirmAndDeleteAllDownloads,
-                icon: const Icon(Icons.delete_outline),
-              );
-            },
+                    : _confirmAndDownloadMissing,
+                icon: _isFetchingEpisodeList
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.download),
+              ),
+              StreamBuilder<DownloadProgress>(
+                stream: DownloadManager.instance.progressStream,
+                builder: (context, _) {
+                  final hasDownloads = repository.hasAnyDownload(work.workId);
+                  final isDownloading = DownloadManager.instance.isDownloading(
+                    work.workId,
+                  );
+
+                  return IconButton(
+                    tooltip: isDownloading
+                        ? 'ダウンロード中は削除できません'
+                        : 'ダウンロードファイルを削除',
+                    onPressed:
+                        _isFetchingEpisodeList ||
+                            _isRefreshingWorkInformation ||
+                            !hasDownloads ||
+                            isDownloading
+                        ? null
+                        : _confirmAndDeleteAllDownloads,
+                    icon: const Icon(Icons.delete_outline),
+                  );
+                },
+              ),
+            ],
           ),
-        ],
-      ),
 
-      body: ValueListenableBuilder<Box<Download>>(
-        valueListenable: box.listenable(),
-        builder: (context, downloadBox, _) {
-          final downloads = _downloads(downloadBox);
-          final visibleDownloads = _visibleDownloads(downloads);
+          body: ValueListenableBuilder<Box<Download>>(
+            valueListenable: box.listenable(),
+            builder: (context, downloadBox, _) {
+              final downloads = _downloads(downloadBox);
+              final visibleDownloads = _visibleDownloads(downloads);
 
-          if (downloads.isEmpty) {
-            return const Center(child: Text('ダウンロードした話はありません'));
-          }
+              if (downloads.isEmpty) {
+                return const Center(child: Text('ダウンロードした話はありません'));
+              }
 
-          return Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+              return Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Icon(
-                          site == Site.narou
-                              ? Icons.menu_book_outlined
-                              : Icons.auto_stories_outlined,
-                          size: 18,
-                          color: site == Site.narou ? Colors.teal : Colors.blue,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            '作:${work.author}　'
-                            'サイト:${site.displayName}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey[500],
+                        Row(
+                          children: [
+                            Icon(
+                              site == Site.narou
+                                  ? Icons.menu_book_outlined
+                                  : Icons.auto_stories_outlined,
+                              size: 18,
+                              color: site == Site.narou
+                                  ? Colors.teal
+                                  : Colors.blue,
                             ),
-                          ),
-                        ),
-                        Text(
-                          '${downloads.length}話',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[500],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 10,
-                      runSpacing: 4,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: work.isCompleted ? Colors.grey : Colors.teal,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            work.isCompleted ? '完結' : '連載中',
-                            style: const TextStyle(
-                              fontSize: 10,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                        if (work.genre.isNotEmpty)
-                          Text(
-                            'ジャンル:${work.genre}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey[500],
-                            ),
-                          ),
-                        Text(
-                          '全${_onlineEpisodeCount ?? work.totalEpisodeCount}話',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[500],
-                          ),
-                        ),
-                      ],
-                    ),
-                    if ((html_parser.parseFragment(work.summary).text ?? '')
-                        .trim()
-                        .isNotEmpty) ...[
-                      const SizedBox(height: 10),
-                      Text(
-                        (html_parser.parseFragment(work.summary).text ?? '')
-                            .trim(),
-                        maxLines: 6,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 13,
-                          height: 1.5,
-                          color: Theme.of(context).textTheme.bodyMedium?.color
-                              ?.withValues(alpha: 0.85),
-                        ),
-                      ),
-                    ],
-                    if (work.tags.isNotEmpty) ...[
-                      const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 5,
-                        children: work.tags
-                            .where((tag) => tag.trim().isNotEmpty)
-                            .map(
-                              (tag) => Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 7,
-                                  vertical: 3,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: site == Site.narou
-                                      ? Colors.teal.withValues(alpha: 0.12)
-                                      : Colors.blue.withValues(alpha: 0.12),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Text(
-                                  tag,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: site == Site.narou
-                                        ? Colors.teal[300]
-                                        : Colors.blue[300],
-                                  ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                '作:${work.author}　'
+                                'サイト:${site.displayName}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[500],
                                 ),
                               ),
-                            )
-                            .toList(),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              const Divider(height: 1),
-              Expanded(
-                child: Column(
-                  children: [
-                    _buildEpisodePaginationBar(context, downloads),
+                            ),
+                            Text(
+                              '${downloads.length}話',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[500],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 4,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: work.isCompleted
+                                    ? Colors.grey
+                                    : Colors.teal,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                work.isCompleted ? '完結' : '連載中',
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                            if (work.genre.isNotEmpty)
+                              Text(
+                                'ジャンル:${work.genre}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[500],
+                                ),
+                              ),
+                            Text(
+                              '全${_onlineEpisodeCount ?? work.totalEpisodeCount}話',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[500],
+                              ),
+                            ),
+                          ],
+                        ),
+                        if ((html_parser.parseFragment(work.summary).text ?? '')
+                            .trim()
+                            .isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          Text(
+                            (html_parser.parseFragment(work.summary).text ?? '')
+                                .trim(),
+                            maxLines: 6,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 13,
+                              height: 1.5,
+                              color: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium
+                                  ?.color
+                                  ?.withValues(alpha: 0.85),
+                            ),
+                          ),
+                        ],
+                        if (work.tags.isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 5,
+                            children: work.tags
+                                .where((tag) => tag.trim().isNotEmpty)
+                                .map(
+                                  (tag) => Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 7,
+                                      vertical: 3,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: site == Site.narou
+                                          ? Colors.teal.withValues(alpha: 0.12)
+                                          : Colors.blue.withValues(alpha: 0.12),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Text(
+                                      tag,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: site == Site.narou
+                                            ? Colors.teal[300]
+                                            : Colors.blue[300],
+                                      ),
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: Column(
+                      children: [
+                        _buildEpisodePaginationBar(context, downloads),
 
-                    const Divider(height: 1),
+                        const Divider(height: 1),
 
-                    Expanded(
-                      child: Scrollbar(
-                        controller: _episodeScrollController,
-                        thumbVisibility: false,
-                        trackVisibility: false,
-                        interactive: true,
-                        thickness: 6,
-                        radius: const Radius.circular(8),
-                        scrollbarOrientation: ScrollbarOrientation.right,
-                        child: ListView.separated(
-                          controller: _episodeScrollController,
-                          padding: const EdgeInsets.only(bottom: 16),
-                          itemCount: visibleDownloads.length,
+                        Expanded(
+                          child: Scrollbar(
+                            controller: _episodeScrollController,
+                            thumbVisibility: false,
+                            trackVisibility: false,
+                            interactive: true,
+                            thickness: 6,
+                            radius: const Radius.circular(8),
+                            scrollbarOrientation: ScrollbarOrientation.right,
+                            child: ListView.separated(
+                              controller: _episodeScrollController,
+                              padding: const EdgeInsets.only(bottom: 16),
+                              itemCount: visibleDownloads.length,
 
-                          separatorBuilder: (_, __) {
-                            return const Divider(height: 1);
-                          },
-                          itemBuilder: (context, index) {
-                            final download = visibleDownloads[index];
-
-                            final title = download.episodeTitle.isNotEmpty
-                                ? download.episodeTitle
-                                : '第${download.episodeNo}話';
-
-                            final publishedDate = _formatPublishedDate(
-                              download.publishedAt,
-                            );
-
-                            final isRead = repository.isEpisodeRead(
-                              work.workId,
-                              download.episodeNo,
-                            );
-
-                            return GestureDetector(
-                              behavior: HitTestBehavior.opaque,
-                              onTap: () {
-                                _openReader(context, download);
+                              separatorBuilder: (_, __) {
+                                return const Divider(height: 1);
                               },
-                              child: Container(
-                                constraints: const BoxConstraints(
-                                  minHeight: 64,
-                                ),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 8,
-                                ),
-                                child: Row(
-                                  children: [
-                                    const Icon(
-                                      Icons.download_done,
-                                      size: 20,
-                                      color: Colors.teal,
+                              itemBuilder: (context, index) {
+                                final download = visibleDownloads[index];
+
+                                final title = download.episodeTitle.isNotEmpty
+                                    ? download.episodeTitle
+                                    : '第${download.episodeNo}話';
+
+                                final publishedDate = _formatPublishedDate(
+                                  download.publishedAt,
+                                );
+
+                                final isRead = repository.isEpisodeRead(
+                                  work.workId,
+                                  download.episodeNo,
+                                );
+
+                                return GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: () {
+                                    _openReader(context, download);
+                                  },
+                                  child: Container(
+                                    constraints: const BoxConstraints(
+                                      minHeight: 64,
                                     ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            '第${download.episodeNo}話',
-                                            style: TextStyle(
-                                              fontSize: 11,
-                                              color: Colors.grey[500],
-                                            ),
-                                          ),
-                                          const SizedBox(height: 2),
-                                          Text(
-                                            title,
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: TextStyle(
-                                              fontSize: 14,
-                                              color: isRead
-                                                  ? Colors.grey
-                                                  : null,
-                                            ),
-                                          ),
-                                          if (publishedDate.isNotEmpty) ...[
-                                            const SizedBox(height: 4),
-                                            Text(
-                                              '掲載日：$publishedDate',
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                color: isRead
-                                                    ? Colors.grey
-                                                    : Theme.of(context)
-                                                          .textTheme
-                                                          .bodySmall
-                                                          ?.color
-                                                          ?.withValues(
-                                                            alpha: 0.65,
-                                                          ),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 8,
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        const Icon(
+                                          Icons.download_done,
+                                          size: 20,
+                                          color: Colors.teal,
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                '第${download.episodeNo}話',
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  color: Colors.grey[500],
+                                                ),
                                               ),
-                                            ),
-                                          ],
-                                        ],
-                                      ),
-                                    ),
-                                    if (isRead)
-                                      const Icon(
-                                        Icons.check,
-                                        size: 19,
-                                        color: Colors.grey,
-                                      ),
-                                    GestureDetector(
-                                      behavior: HitTestBehavior.opaque,
-                                      onTap: () {
-                                        _deleteEpisode(context, download);
-                                      },
-                                      child: const SizedBox(
-                                        width: 40,
-                                        height: 44,
-                                        child: Center(
-                                          child: Icon(
-                                            Icons.delete_outline,
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                title,
+                                                maxLines: 2,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: TextStyle(
+                                                  fontSize: 14,
+                                                  color: isRead
+                                                      ? Colors.grey
+                                                      : null,
+                                                ),
+                                              ),
+                                              if (publishedDate.isNotEmpty) ...[
+                                                const SizedBox(height: 4),
+                                                Text(
+                                                  '掲載日：$publishedDate',
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: TextStyle(
+                                                    fontSize: 11,
+                                                    color: isRead
+                                                        ? Colors.grey
+                                                        : Theme.of(context)
+                                                              .textTheme
+                                                              .bodySmall
+                                                              ?.color
+                                                              ?.withValues(
+                                                                alpha: 0.65,
+                                                              ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ],
+                                          ),
+                                        ),
+                                        if (isRead)
+                                          const Icon(
+                                            Icons.check,
                                             size: 19,
                                             color: Colors.grey,
                                           ),
+                                        GestureDetector(
+                                          behavior: HitTestBehavior.opaque,
+                                          onTap: () {
+                                            _deleteEpisode(context, download);
+                                          },
+                                          child: const SizedBox(
+                                            width: 40,
+                                            height: 44,
+                                            child: Center(
+                                              child: Icon(
+                                                Icons.delete_outline,
+                                                size: 19,
+                                                color: Colors.grey,
+                                              ),
+                                            ),
+                                          ),
                                         ),
-                                      ),
+                                      ],
                                     ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
                         ),
-                      ),
+                      ],
                     ),
-                  ],
-                ),
-              ),
-            ],
-          );
-        },
-      ),
+                  ),
+                ],
+              );
+            },
+          ),
+        );
+      },
     );
   }
 }
