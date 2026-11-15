@@ -30,6 +30,102 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
 
   bool _isLoading = true;
 
+  bool _isRefreshingWorkInformation = false;
+  Work? _updatedWork;
+  Work? _updatedWorkInput;
+
+  // 親から別のWorkが渡された場合は、以前の表示用キャッシュを使いません。
+  Work get _work => identical(_updatedWorkInput, widget.work)
+      ? (_updatedWork ?? widget.work)
+      : widget.work;
+
+  Future<void> _refreshWorkInformation() async {
+    if (_isLoading || _isRefreshingWorkInformation) {
+      return;
+    }
+
+    final repository = widget.repository;
+    final input = widget.work;
+    final target = _work;
+    final workId = target.workId;
+    final siteIndex = target.siteIndex;
+
+    void notify(String message) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    }
+
+    if (DownloadManager.instance.isDownloading(workId)) {
+      notify('ダウンロード中は作品情報を更新できません');
+      return;
+    }
+    if (siteIndex < 0 || siteIndex >= Site.values.length) {
+      notify('作品の掲載サイト情報が不正です');
+      return;
+    }
+
+    setState(() {
+      _isRefreshingWorkInformation = true;
+    });
+
+    try {
+      final stored = repository.getWork(workId);
+      if (stored == null || stored.siteIndex != siteIndex) {
+        notify('更新対象の作品が登録されていません');
+        return;
+      }
+
+      final saved = switch (Site.values[siteIndex]) {
+        Site.narou => await repository.refreshStoredNarouWorkDetails(
+          work: stored,
+        ),
+        Site.kakuyomu => await repository.refreshStoredKakuyomuWorkDetails(
+          work: stored,
+        ),
+      };
+
+      if (!mounted ||
+          !identical(widget.repository, repository) ||
+          !identical(widget.work, input)) {
+        return;
+      }
+
+      if (!saved) {
+        notify('作品情報が変更されたため更新を見送りました');
+        return;
+      }
+
+      final latest = repository.getWork(workId);
+      if (latest == null ||
+          latest.workId != workId ||
+          latest.siteIndex != siteIndex) {
+        notify('保存後の作品情報を確認できませんでした');
+        return;
+      }
+
+      setState(() {
+        _updatedWorkInput = input;
+        _updatedWork = latest;
+      });
+      notify('作品情報を更新しました');
+    } catch (error) {
+      AppLog.failure('作品情報の更新に失敗しました', error);
+      if (!mounted ||
+          !identical(widget.repository, repository) ||
+          !identical(widget.work, input)) {
+        return;
+      }
+      notify('作品情報を更新できませんでした');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isRefreshingWorkInformation = false;
+        });
+      }
+    }
+  }
+
   /// 作品情報・あらすじを表示しているかどうかです。
   bool _showWorkInformation = true;
 
@@ -341,16 +437,16 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
     try {
       // 詳細取得に失敗しても、目次取得は続行します。
       try {
-        await widget.repository.refreshWorkDetails(widget.work);
+        await widget.repository.refreshWorkDetails(_work);
       } catch (_) {
         // 完全なあらすじの取得失敗は無視します。
         // 検索結果のあらすじをそのまま表示します。
       }
 
-      final episodes = await widget.repository.fetchEpisodeList(widget.work);
+      final episodes = await widget.repository.fetchEpisodeList(_work);
 
       await widget.repository.updateDownloadPublishedDates(
-        work: widget.work,
+        work: _work,
         episodeList: episodes,
       );
 
@@ -385,16 +481,20 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
   }
 
   Future<void> _confirmAndDeleteDownloads() async {
+    if (_isRefreshingWorkInformation) {
+      return;
+    }
+
     final manager = DownloadManager.instance;
 
-    if (manager.isDownloading(widget.work.workId)) {
+    if (manager.isDownloading(_work.workId)) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('ダウンロード中はファイルを削除できません')));
       return;
     }
 
-    if (!widget.repository.hasAnyDownload(widget.work.workId)) {
+    if (!widget.repository.hasAnyDownload(_work.workId)) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('ダウンロード済みの本文はありません')));
@@ -437,14 +537,14 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
     }
 
     // 確認ダイアログ表示中にダウンロードが始まった場合も拒否します。
-    if (manager.isDownloading(widget.work.workId)) {
+    if (manager.isDownloading(_work.workId)) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('ダウンロード中はファイルを削除できません')));
       return;
     }
 
-    final siteIndex = widget.work.siteIndex;
+    final siteIndex = _work.siteIndex;
 
     if (siteIndex < 0 || siteIndex >= Site.values.length) {
       ScaffoldMessenger.of(
@@ -455,7 +555,7 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
 
     try {
       await widget.repository.deleteAllDownloads(
-        widget.work.workId,
+        _work.workId,
         site: Site.values[siteIndex],
       );
 
@@ -482,10 +582,14 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
   }
 
   Future<void> _confirmAndBulkDownload() async {
+    if (_isRefreshingWorkInformation) {
+      return;
+    }
+
     final undownloaded = _episodes.where((entry) {
       final episodeNo = int.tryParse(entry['episodeNo'] ?? '') ?? 0;
 
-      return !widget.repository.isDownloaded(widget.work, episodeNo);
+      return !widget.repository.isDownloaded(_work, episodeNo);
     }).length;
 
     if (undownloaded == 0) {
@@ -530,7 +634,7 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
     }
 
     await DownloadManager.instance.enqueueBulk(
-      work: widget.work,
+      work: _work,
       episodeList: _episodes,
     );
 
@@ -555,8 +659,12 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
     String sourceId = '',
     String sourceUpdatedAt = '',
   }) async {
+    if (_isRefreshingWorkInformation) {
+      return;
+    }
+
     await DownloadManager.instance.downloadSingle(
-      work: widget.work,
+      work: _work,
       episodeNo: episodeNo,
       episodeTitle: title,
       publishedAt: publishedAt,
@@ -572,11 +680,15 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
   }
 
   Future<void> _openReader(int episodeNo, String title) async {
+    if (_isRefreshingWorkInformation) {
+      return;
+    }
+
     await Navigator.of(context).push<void>(
       noAnimationRoute<void>(
         ReaderScreen(
           repository: widget.repository,
-          work: widget.work,
+          work: _work,
           episodeNo: episodeNo,
           episodeTitle: title,
         ),
@@ -593,7 +705,7 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
 
   void _continueReading() {
     final nextEpisodeNo = widget.repository.firstUnreadEpisodeNo(
-      widget.work.workId,
+      _work.workId,
       _episodes,
     );
 
@@ -632,7 +744,7 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
         const TextStyle(fontSize: 20);
 
     final textPainter = TextPainter(
-      text: TextSpan(text: widget.work.title, style: titleStyle),
+      text: TextSpan(text: _work.title, style: titleStyle),
       textDirection: Directionality.of(context),
       textScaler: mediaQuery.textScaler,
     )..layout(maxWidth: availableTitleWidth);
@@ -644,7 +756,7 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final work = widget.work;
+    final work = _work;
     final theme = Theme.of(context);
 
     return Scaffold(
@@ -676,7 +788,9 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
           IconButton(
             icon: const Icon(Icons.download),
             tooltip: '全話ダウンロード',
-            onPressed: _isLoading ? null : _confirmAndBulkDownload,
+            onPressed: _isLoading || _isRefreshingWorkInformation
+                ? null
+                : _confirmAndBulkDownload,
           ),
 
           // ダウンロード済み本文・挿絵の削除
@@ -684,16 +798,20 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
             stream: DownloadManager.instance.progressStream,
             builder: (context, _) {
               final hasDownloads = widget.repository.hasAnyDownload(
-                widget.work.workId,
+                _work.workId,
               );
               final isDownloading = DownloadManager.instance.isDownloading(
-                widget.work.workId,
+                _work.workId,
               );
 
               return IconButton(
                 icon: const Icon(Icons.delete_outline),
                 tooltip: isDownloading ? 'ダウンロード中は削除できません' : 'ダウンロードファイルを削除',
-                onPressed: _isLoading || !hasDownloads || isDownloading
+                onPressed:
+                    _isLoading ||
+                        _isRefreshingWorkInformation ||
+                        !hasDownloads ||
+                        isDownloading
                     ? null
                     : _confirmAndDeleteDownloads,
               );
@@ -849,10 +967,43 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
                       const SizedBox(height: 8),
                       Align(
                         alignment: Alignment.centerRight,
-                        child: FilledButton.icon(
-                          onPressed: _isLoading ? null : _continueReading,
-                          icon: const Icon(Icons.play_arrow),
-                          label: const Text('続きから読む'),
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          alignment: WrapAlignment.end,
+                          children: [
+                            OutlinedButton.icon(
+                              key: const ValueKey('refresh-work-information'),
+                              onPressed:
+                                  _isLoading ||
+                                      _isRefreshingWorkInformation ||
+                                      progress.isRunning
+                                  ? null
+                                  : _refreshWorkInformation,
+                              icon: _isRefreshingWorkInformation
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.refresh),
+                              label: Text(
+                                _isRefreshingWorkInformation
+                                    ? '作品情報を更新中…'
+                                    : '作品情報を更新',
+                              ),
+                            ),
+                            FilledButton.icon(
+                              onPressed:
+                                  _isLoading || _isRefreshingWorkInformation
+                                  ? null
+                                  : _continueReading,
+                              icon: const Icon(Icons.play_arrow),
+                              label: const Text('続きから読む'),
+                            ),
+                          ],
                         ),
                       ),
                     ],
