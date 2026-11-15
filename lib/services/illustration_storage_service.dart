@@ -193,6 +193,126 @@ class IllustrationStorageService {
     return '${NovelBodyCodec.prefix}$payload';
   }
 
+  /// 更新用の本文に含まれる挿絵を、既存画像を壊さず準備します。
+  ///
+  /// 通常保存とは異なり、既存のdata-local-srcを信用せず再取得します。
+  /// 許可外URL・取得失敗・形式不正・制限超過は例外として通知します。
+  /// 本文やHiveの保存、旧画像の削除は行いません。
+  ///
+  /// 途中で失敗した場合、準備済みの新画像が残る場合があります。
+  Future<String> prepareRefreshedBody({
+    required String siteKey,
+    required String workId,
+    required int episodeNo,
+    required String body,
+  }) async {
+    if (siteKey.trim().isEmpty || workId.trim().isEmpty || episodeNo <= 0) {
+      throw ArgumentError('更新対象の作品または話番号が不正です。');
+    }
+
+    if (NovelBodyCodec.payloadOf(body).trim().isEmpty) {
+      throw StateError('更新用の本文が空です。');
+    }
+    if (!NovelBodyCodec.isRichBody(body)) {
+      return body;
+    }
+
+    final fragment = html_parser.parseFragment(NovelBodyCodec.payloadOf(body));
+    final images = fragment.querySelectorAll('img');
+
+    if (images.isEmpty) {
+      return body;
+    }
+
+    final safeSiteKey = _safeSegment(siteKey);
+    final safeWorkId = _safeSegment(workId);
+    final localizedByUrl = <String, String>{};
+    var uniqueImages = 0;
+    var episodeBytes = 0;
+
+    for (final image in images) {
+      final uri = NovelBodyCodec.normalizeIllustrationUri(
+        image.attributes['src'],
+      );
+      if (uri == null) {
+        throw const FormatException('更新用挿絵のURLが許可されていません。');
+      }
+
+      final url = uri.toString();
+      image.attributes['src'] = url;
+      image.attributes.remove('data-local-src');
+
+      final knownPath = localizedByUrl[url];
+      if (knownPath != null) {
+        image.attributes['data-local-src'] = knownPath;
+        continue;
+      }
+
+      if (uniqueImages >= maximumImagesPerEpisode) {
+        throw StateError('更新用挿絵の件数が上限を超えています。');
+      }
+      uniqueImages++;
+
+      final payload =
+          await (_loader?.call(uri, maximumImageBytes) ??
+              _download(uri, maximumImageBytes));
+
+      if (payload.bytes.isEmpty ||
+          payload.bytes.length > maximumImageBytes ||
+          episodeBytes + payload.bytes.length > maximumEpisodeBytes) {
+        throw StateError('更新用挿絵の容量が不正または上限超過です。');
+      }
+
+      final extension = _validatedExtension(payload.bytes, payload.contentType);
+      if (extension == null) {
+        throw const FormatException('更新用挿絵の形式が不正です。');
+      }
+
+      // 通常保存のURLハッシュ名と区別し、画像内容が違えば別ファイルにします。
+      final digest = sha256.convert(payload.bytes).toString();
+      final relativePath = [
+        safeSiteKey,
+        safeWorkId,
+        episodeNo.toString(),
+        'refresh_$digest.$extension',
+      ].join('/');
+
+      final file = await _fileForRelativePath(relativePath);
+      await file.parent.create(recursive: true);
+
+      if (await file.exists()) {
+        // 同名ファイルが破損していても、その場で上書きしません。
+        if (await file.length() != payload.bytes.length ||
+            sha256.convert(await file.readAsBytes()).toString() != digest) {
+          throw StateError('準備済み挿絵の整合性を確認できませんでした。');
+        }
+      } else {
+        // 同時処理でも一時ファイル名が衝突しないようにします。
+        final stagingDirectory = await file.parent.createTemp('.refresh_');
+        try {
+          final temporaryFile = File(
+            '${stagingDirectory.path}${Platform.pathSeparator}image.part',
+          );
+          await temporaryFile.writeAsBytes(payload.bytes, flush: true);
+
+          if (!await file.exists()) {
+            await temporaryFile.rename(file.path);
+          }
+        } finally {
+          if (await stagingDirectory.exists()) {
+            await stagingDirectory.delete(recursive: true);
+          }
+        }
+      }
+
+      image.attributes['data-local-src'] = relativePath;
+      localizedByUrl[url] = relativePath;
+      episodeBytes += payload.bytes.length;
+    }
+
+    return '${NovelBodyCodec.prefix}${_serializeNodes(fragment.nodes)}';
+  }
+
   /// 相対パスに対応する実在ファイルを返します。
   Future<File?> resolveLocalFile(String relativePath) async {
     final file = await _fileForRelativePathOrNull(relativePath);
