@@ -468,6 +468,8 @@ class NovelRepository {
     required int episodeNo,
     required String episodeTitle,
     String publishedAt = '',
+    String sourceId = '',
+    String sourceUpdatedAt = '',
   }) async {
     // 書庫で作品情報を表示できるように保存します。
     await saveWork(work);
@@ -528,6 +530,11 @@ class NovelRepository {
         body: localizedBody,
         downloadedAt: DateTime.now(),
         publishedAt: publishedAt.trim(),
+        // キャッシュ本文と現在の目次が同じ版とは限りません。
+        sourceId: cached == null ? sourceId.trim() : '',
+        sourceUpdatedAt: cached == null && sourceId.trim().isNotEmpty
+            ? sourceUpdatedAt.trim()
+            : '',
       ),
     );
   }
@@ -539,6 +546,8 @@ class NovelRepository {
     required String episodeTitle,
     required String body,
     String publishedAt = '',
+    String sourceId = '',
+    String sourceUpdatedAt = '',
   }) async {
     await saveWork(work);
 
@@ -562,6 +571,10 @@ class NovelRepository {
 
       if (localizedBody != existing.body) {
         existing.body = localizedBody;
+        // 本文が変わった場合、以前の版を示す情報は引き継ぎません。
+        // 既存本文の更新専用処理は、後続段階で別途実装します。
+        existing.sourceId = '';
+        existing.sourceUpdatedAt = '';
         needsSave = true;
       }
 
@@ -587,6 +600,10 @@ class NovelRepository {
         body: localizedBody,
         downloadedAt: DateTime.now(),
         publishedAt: publishedAt.trim(),
+        sourceId: sourceId.trim(),
+        sourceUpdatedAt: sourceId.trim().isNotEmpty
+            ? sourceUpdatedAt.trim()
+            : '',
       ),
     );
   }
