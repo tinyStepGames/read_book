@@ -6,6 +6,7 @@ import 'package:html/parser.dart' as html_parser;
 import '../models/download.dart';
 import '../models/site.dart';
 import '../models/work.dart';
+import '../widgets/archive_summary_view.dart';
 import '../services/novel_repository.dart';
 import '../services/download_refresh_runner.dart';
 import 'download_refresh_dialog.dart';
@@ -585,8 +586,9 @@ class SiteArchiveScreen extends StatelessWidget {
                               children: [
                                 Text(
                                   work.title,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
+                                  softWrap: true,
+                                  maxLines: null,
+                                  overflow: TextOverflow.visible,
                                   style: const TextStyle(
                                     fontSize: 14,
                                     fontWeight: FontWeight.w600,
@@ -1820,11 +1822,13 @@ class _DownloadedWorkScreenState extends State<DownloadedWorkScreen> {
                             .trim()
                             .isNotEmpty) ...[
                           const SizedBox(height: 10),
-                          Text(
-                            (html_parser.parseFragment(work.summary).text ?? '')
-                                .trim(),
-                            maxLines: 6,
-                            overflow: TextOverflow.ellipsis,
+                          ArchiveSummaryView(
+                            title: work.title,
+                            summary:
+                                (html_parser.parseFragment(work.summary).text ??
+                                        '')
+                                    .trim(),
+                            previewLines: 6,
                             style: TextStyle(
                               fontSize: 13,
                               height: 1.5,
