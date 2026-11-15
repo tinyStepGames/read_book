@@ -13,6 +13,8 @@ import '../models/site.dart';
 import '../models/work.dart';
 import '../utils/novel_body_codec.dart';
 import '../utils/work_metadata_merger.dart';
+import 'download_refresh_planner.dart';
+import 'download_refresh_runner.dart';
 import 'illustration_storage_service.dart';
 import 'kakuyomu_scraper.dart';
 import 'narou_api_client.dart';
@@ -22,15 +24,20 @@ class NovelRepository {
     IllustrationStorageService? illustrationStorageService,
     NarouApiClient? narouApiClient,
     KakuyomuScraper? kakuyomuScraper,
+    DownloadRefreshRunner? downloadRefreshRunner,
   }) : illustrationStorageService =
            illustrationStorageService ?? IllustrationStorageService(),
        narouApiClient = narouApiClient ?? NarouApiClient(),
-       kakuyomuScraper = kakuyomuScraper ?? KakuyomuScraper();
+       kakuyomuScraper = kakuyomuScraper ?? KakuyomuScraper(),
+       _downloadRefreshRunner =
+           downloadRefreshRunner ?? DownloadRefreshRunner();
 
   final IllustrationStorageService illustrationStorageService;
   final NarouApiClient narouApiClient;
   final KakuyomuScraper kakuyomuScraper;
   final Set<String> _refreshingDownloadKeys = <String>{};
+  final DownloadRefreshRunner _downloadRefreshRunner;
+  final Set<String> _refreshingWorkIds = <String>{};
 
   /// 作品詳細画面を開いたときに、サイトから完全な作品情報を取得します。
   ///
@@ -758,6 +765,129 @@ class NovelRepository {
       return true;
     } finally {
       _refreshingDownloadKeys.remove(key);
+    }
+  }
+
+  /// 保存済み本文だけを最新目次と照合し、順番に更新します。
+  ///
+  /// 新着話のダウンロード・作品情報更新・既読変更は行いません。
+  /// 目次取得や計画作成の失敗は例外、個別更新の失敗は結果へ集計します。
+  Future<DownloadRefreshBatchResult> refreshDownloadedWork({
+    required Work work,
+    bool forceRefresh = false,
+    DownloadRefreshCancellation? cancellation,
+    void Function(int completed, int total)? onProgress,
+  }) async {
+    final workId = work.workId;
+    final siteIndex = work.siteIndex;
+    _siteKeyForWork(work);
+
+    if (workId.trim().isEmpty) {
+      throw ArgumentError('作品IDが空です。');
+    }
+    if (!_refreshingWorkIds.add(workId)) {
+      throw StateError('この作品の更新処理はすでに実行中です。');
+    }
+
+    try {
+      final registeredWork = _workBox.get(workId);
+      if (registeredWork == null || registeredWork.siteIndex != siteIndex) {
+        throw StateError('更新対象の作品が登録されていません。');
+      }
+
+      bool sameWork() {
+        final current = _workBox.get(workId);
+        return identical(current, registeredWork) &&
+            current != null &&
+            current.workId == workId &&
+            current.siteIndex == siteIndex &&
+            work.workId == workId &&
+            work.siteIndex == siteIndex;
+      }
+
+      if (!_downloadBox.values.any((item) => item.workId == workId)) {
+        return DownloadRefreshBatchResult([]);
+      }
+
+      // 開始前キャンセルでは目次通信も行いません。
+      final latest = (cancellation?.isRequested ?? false)
+          ? <Map<String, String>>[]
+          : await fetchEpisodeList(work);
+
+      if (!sameWork()) {
+        throw StateError('目次取得中に作品が削除または変更されました。');
+      }
+
+      // 計画作成時点の参照と値を、別々に保持します。
+      final originals = _downloadBox.values
+          .where((item) => item.workId == workId)
+          .toList();
+
+      final snapshots = originals.map((item) {
+        return Download(
+          workId: item.workId,
+          episodeNo: item.episodeNo,
+          episodeTitle: item.episodeTitle,
+          body: item.body,
+          downloadedAt: item.downloadedAt,
+          publishedAt: item.publishedAt,
+          sourceId: item.sourceId,
+          sourceUpdatedAt: item.sourceUpdatedAt,
+        );
+      }).toList();
+
+      // 不正・重複目次があれば、最初の本文取得前に停止します。
+      final plan = DownloadRefreshPlanner.build(
+        workId: workId,
+        downloads: snapshots,
+        episodeList: latest,
+        forceRefresh: forceRefresh,
+      );
+
+      final originalsByNumber = {
+        for (final item in originals) item.episodeNo: item,
+      };
+      final snapshotsByNumber = {
+        for (final item in snapshots) item.episodeNo: item,
+      };
+
+      bool sameDownload(int number) {
+        final current = _downloadBox.get(_key(workId, number));
+        final original = originalsByNumber[number];
+        final snapshot = snapshotsByNumber[number];
+
+        return sameWork() &&
+            current != null &&
+            snapshot != null &&
+            identical(current, original) &&
+            current.workId == snapshot.workId &&
+            current.episodeNo == snapshot.episodeNo &&
+            current.episodeTitle == snapshot.episodeTitle &&
+            current.body == snapshot.body &&
+            current.downloadedAt == snapshot.downloadedAt &&
+            current.publishedAt == snapshot.publishedAt &&
+            current.sourceId == snapshot.sourceId &&
+            current.sourceUpdatedAt == snapshot.sourceUpdatedAt;
+      }
+
+      return await _downloadRefreshRunner.run(
+        workId: workId,
+        plan: plan,
+        cancellation: cancellation,
+        onProgress: onProgress,
+        refreshItem: (item) async {
+          // 前の話を処理している間に変わったデータも上書きしません。
+          if (!sameDownload(item.episodeNo)) {
+            return false;
+          }
+          return refreshDownloadedEpisode(
+            work: work,
+            episodeEntry: item.latestEntry,
+          );
+        },
+      );
+    } finally {
+      _refreshingWorkIds.remove(workId);
     }
   }
 
