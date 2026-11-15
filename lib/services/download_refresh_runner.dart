@@ -34,6 +34,17 @@ class DownloadRefreshBatchResult {
   int get skippedCount => _count(DownloadRefreshOutcome.skipped);
   int get unchangedCount => _count(DownloadRefreshOutcome.unchanged);
   int get canceledCount => _count(DownloadRefreshOutcome.canceled);
+
+  /// 保留のうち、更新日時が不明で本文を再確認しなかった件数です。
+  /// skippedCountの内数であり、別途加算しません。
+  int get unknownRevisionCount => items
+      .where(
+        (item) =>
+            item.outcome == DownloadRefreshOutcome.skipped &&
+            item.item.decision == DownloadRefreshDecision.missingRevision,
+      )
+      .length;
+
   int get totalCount => items.length;
 }
 

@@ -5,6 +5,7 @@ enum DownloadRefreshDecision {
   refresh,
   unchanged,
   missingIdentity,
+  missingRevision,
   missingEpisode,
   movedEpisode,
   differentIdentity,
@@ -138,9 +139,15 @@ abstract final class DownloadRefreshPlanner {
               latestStamp.isNotEmpty &&
               oldStamp == latestStamp;
 
-          decision = !forceRefresh && sameKnownVersion
-              ? DownloadRefreshDecision.unchanged
-              : DownloadRefreshDecision.refresh;
+          if (!forceRefresh && (oldStamp.isEmpty || latestStamp.isEmpty)) {
+            // 日時不明は「変更なし」ではありません。
+            // 本文の再確認は、明示的な再取得指定がある場合に行います。
+            decision = DownloadRefreshDecision.missingRevision;
+          } else {
+            decision = !forceRefresh && sameKnownVersion
+                ? DownloadRefreshDecision.unchanged
+                : DownloadRefreshDecision.refresh;
+          }
         }
       }
 

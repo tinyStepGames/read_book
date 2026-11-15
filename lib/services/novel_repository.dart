@@ -987,6 +987,7 @@ class NovelRepository {
     bool forceRefresh = false,
     DownloadRefreshCancellation? cancellation,
     void Function(int completed, int total)? onProgress,
+    Future<bool> Function(DownloadRefreshPlan plan)? confirmPlan,
   }) async {
     final workId = work.workId;
     final siteIndex = work.siteIndex;
@@ -1080,10 +1081,23 @@ class NovelRepository {
             current.sourceUpdatedAt == snapshot.sourceUpdatedAt;
       }
 
-      return await _downloadRefreshRunner.run(
+      // 計画作成後、本文取得・タイトル保存の前に確認します。
+      // 同じ目次とスナップショットを使い、確認のための再通信はしません。
+      var planDeclined = false;
+      if (confirmPlan != null && !(cancellation?.isRequested ?? false)) {
+        planDeclined = !await confirmPlan(plan);
+      }
+
+      if (!planDeclined && !sameWork()) {
+        throw StateError('実行確認中に作品が削除または変更されました。');
+      }
+
+      final result = await _downloadRefreshRunner.run(
         workId: workId,
         plan: plan,
-        cancellation: cancellation,
+        cancellation: planDeclined
+            ? (DownloadRefreshCancellation()..cancel())
+            : cancellation,
         onProgress: onProgress,
         refreshUnchangedItem: (item) async {
           if (!sameDownload(item.episodeNo)) {
@@ -1134,6 +1148,7 @@ class NovelRepository {
           );
         },
       );
+      return result;
     } finally {
       _refreshingWorkIds.remove(workId);
     }

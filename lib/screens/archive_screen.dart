@@ -7,6 +7,8 @@ import '../models/download.dart';
 import '../models/site.dart';
 import '../models/work.dart';
 import '../services/novel_repository.dart';
+import '../services/download_refresh_runner.dart';
+import 'download_refresh_dialog.dart';
 import '../services/search_request_controller.dart';
 import '../utils/app_log.dart';
 import '../utils/no_animation_route.dart';
@@ -768,8 +770,177 @@ class _DownloadedWorkScreenState extends State<DownloadedWorkScreen> {
 
   bool _isRefreshingWorkInformation = false;
 
+  bool _isRefreshingDownloads = false;
+  DownloadRefreshCancellation? _activeDownloadRefreshCancellation;
+
+  Future<void> _confirmAndRefreshDownloads() async {
+    if (_isFetchingEpisodeList ||
+        _isRefreshingWorkInformation ||
+        _isRefreshingDownloads) {
+      return;
+    }
+
+    final repository = widget.repository;
+    final input = widget.work;
+    final target = work;
+    final workId = target.workId;
+    final siteIndex = target.siteIndex;
+
+    void notify(String message) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    }
+
+    if (DownloadManager.instance.isDownloading(workId)) {
+      notify('ダウンロード中は本文を更新できません');
+      return;
+    }
+    if (!repository.hasAnyDownload(workId)) {
+      notify('ダウンロード済みの本文はありません');
+      return;
+    }
+
+    setState(() {
+      _isRefreshingDownloads = true;
+    });
+
+    try {
+      var forceRefresh = false;
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: const Text('保存済み本文を更新'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '最新目次と照合し、更新日時が異なる保存済み本文を再取得します。\n'
+                    '新着話の追加ダウンロードは行いません。\n\n'
+                    '識別情報のない旧データ・識別子不一致・'
+                    '話番号が移動した話は保留します。\n'
+                    '更新日時が不明な話は、通常更新では本文未確認として保留します。\n'
+                    '既読情報は変更しません。',
+                  ),
+                  const SizedBox(height: 8),
+                  CheckboxListTile(
+                    key: const ValueKey('force-download-refresh'),
+                    contentPadding: EdgeInsets.zero,
+                    value: forceRefresh,
+                    title: const Text('更新日時が同じ話も再取得'),
+                    subtitle: const Text(
+                      '更新日時不明の話も再取得します。'
+                      '識別子の一致確認は省略しません',
+                    ),
+                    onChanged: (value) {
+                      setDialogState(() {
+                        forceRefresh = value ?? false;
+                      });
+                    },
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('キャンセル'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('更新を開始'),
+              ),
+            ],
+          ),
+        ),
+      );
+
+      if (confirmed != true ||
+          !mounted ||
+          !identical(widget.repository, repository) ||
+          !identical(widget.work, input)) {
+        return;
+      }
+
+      // 確認中に別のダウンロードが始まった場合も開始しません。
+      if (DownloadManager.instance.isDownloading(workId)) {
+        notify('ダウンロード中は本文を更新できません');
+        return;
+      }
+
+      final stored = repository.getWork(workId);
+      if (stored == null ||
+          stored.workId != workId ||
+          stored.siteIndex != siteIndex) {
+        notify('更新対象の作品が登録されていません');
+        return;
+      }
+
+      await showDownloadRefreshDialog(
+        context: context,
+        run: (cancellation, onProgress) {
+          _activeDownloadRefreshCancellation = cancellation;
+          return repository.refreshDownloadedWork(
+            work: stored,
+            forceRefresh: forceRefresh,
+            cancellation: cancellation,
+            onProgress: onProgress,
+            confirmPlan: (plan) async {
+              if (!mounted ||
+                  !identical(widget.repository, repository) ||
+                  !identical(widget.work, input) ||
+                  cancellation.isRequested ||
+                  DownloadManager.instance.isDownloading(workId)) {
+                return false;
+              }
+
+              final accepted = await confirmDownloadRefreshPlan(
+                context: context,
+                plan: plan,
+              );
+
+              return accepted &&
+                  mounted &&
+                  identical(widget.repository, repository) &&
+                  identical(widget.work, input) &&
+                  !cancellation.isRequested &&
+                  !DownloadManager.instance.isDownloading(workId);
+            },
+          );
+        },
+      );
+
+      if (!mounted ||
+          !identical(widget.repository, repository) ||
+          !identical(widget.work, input)) {
+        return;
+      }
+
+      setState(() {});
+    } catch (error) {
+      AppLog.failure('本文更新画面を実行できませんでした', error);
+      if (mounted &&
+          identical(widget.repository, repository) &&
+          identical(widget.work, input)) {
+        notify('本文更新を開始・表示できませんでした');
+      }
+    } finally {
+      _activeDownloadRefreshCancellation = null;
+      if (mounted) {
+        setState(() {
+          _isRefreshingDownloads = false;
+        });
+      }
+    }
+  }
+
   Future<void> _refreshWorkInformation() async {
-    if (_isFetchingEpisodeList || _isRefreshingWorkInformation) {
+    if (_isFetchingEpisodeList ||
+        _isRefreshingWorkInformation ||
+        _isRefreshingDownloads) {
       return;
     }
 
@@ -865,7 +1036,9 @@ class _DownloadedWorkScreenState extends State<DownloadedWorkScreen> {
   }
 
   Future<void> _refreshOnlineEpisodeCount() async {
-    if (_isFetchingEpisodeList) {
+    if (_isFetchingEpisodeList ||
+        _isRefreshingWorkInformation ||
+        _isRefreshingDownloads) {
       return;
     }
 
@@ -896,6 +1069,7 @@ class _DownloadedWorkScreenState extends State<DownloadedWorkScreen> {
 
   @override
   void dispose() {
+    _activeDownloadRefreshCancellation?.cancel();
     _episodeScrollController.dispose();
     super.dispose();
   }
@@ -1140,7 +1314,7 @@ class _DownloadedWorkScreenState extends State<DownloadedWorkScreen> {
   }
 
   Future<void> _openReader(BuildContext context, Download download) async {
-    if (_isRefreshingWorkInformation) {
+    if (_isRefreshingWorkInformation || _isRefreshingDownloads) {
       return;
     }
     await Navigator.of(context).push<void>(
@@ -1158,7 +1332,7 @@ class _DownloadedWorkScreenState extends State<DownloadedWorkScreen> {
   }
 
   Future<void> _deleteEpisode(BuildContext context, Download download) async {
-    if (_isRefreshingWorkInformation) {
+    if (_isRefreshingWorkInformation || _isRefreshingDownloads) {
       return;
     }
     final confirmed = await showDialog<bool>(
@@ -1189,7 +1363,10 @@ class _DownloadedWorkScreenState extends State<DownloadedWorkScreen> {
         );
       },
     );
-    if (confirmed != true || !mounted || _isRefreshingWorkInformation) {
+    if (confirmed != true ||
+        !mounted ||
+        _isRefreshingWorkInformation ||
+        _isRefreshingDownloads) {
       return;
     }
 
@@ -1207,7 +1384,7 @@ class _DownloadedWorkScreenState extends State<DownloadedWorkScreen> {
   }
 
   Future<void> _confirmAndDeleteAllDownloads() async {
-    if (_isRefreshingWorkInformation) {
+    if (_isRefreshingWorkInformation || _isRefreshingDownloads) {
       return;
     }
     final manager = DownloadManager.instance;
@@ -1269,7 +1446,7 @@ class _DownloadedWorkScreenState extends State<DownloadedWorkScreen> {
     }
 
     // 確認中に作品情報更新やダウンロードが始まった場合も削除しません。
-    if (_isRefreshingWorkInformation) {
+    if (_isRefreshingWorkInformation || _isRefreshingDownloads) {
       return;
     }
     if (manager.isDownloading(work.workId)) {
@@ -1307,7 +1484,9 @@ class _DownloadedWorkScreenState extends State<DownloadedWorkScreen> {
   }
 
   Future<void> _confirmAndDownloadMissing() async {
-    if (_isFetchingEpisodeList || _isRefreshingWorkInformation) {
+    if (_isFetchingEpisodeList ||
+        _isRefreshingWorkInformation ||
+        _isRefreshingDownloads) {
       return;
     }
 
@@ -1457,6 +1636,30 @@ class _DownloadedWorkScreenState extends State<DownloadedWorkScreen> {
                   final isDownloading = DownloadManager.instance.isDownloading(
                     work.workId,
                   );
+                  final hasDownloads = repository.hasAnyDownload(work.workId);
+                  return IconButton(
+                    key: const ValueKey('archive-refresh-downloaded-work'),
+                    tooltip: _isRefreshingDownloads
+                        ? '保存済み本文を更新中…'
+                        : '保存済み本文を更新',
+                    onPressed:
+                        _isFetchingEpisodeList ||
+                            _isRefreshingWorkInformation ||
+                            _isRefreshingDownloads ||
+                            isDownloading ||
+                            !hasDownloads
+                        ? null
+                        : _confirmAndRefreshDownloads,
+                    icon: const Icon(Icons.sync),
+                  );
+                },
+              ),
+              StreamBuilder<DownloadProgress>(
+                stream: DownloadManager.instance.progressStream,
+                builder: (context, _) {
+                  final isDownloading = DownloadManager.instance.isDownloading(
+                    work.workId,
+                  );
                   return IconButton(
                     key: const ValueKey('archive-refresh-work-information'),
                     tooltip: _isRefreshingWorkInformation
@@ -1465,6 +1668,7 @@ class _DownloadedWorkScreenState extends State<DownloadedWorkScreen> {
                     onPressed:
                         _isFetchingEpisodeList ||
                             _isRefreshingWorkInformation ||
+                            _isRefreshingDownloads ||
                             isDownloading
                         ? null
                         : _refreshWorkInformation,
@@ -1481,7 +1685,9 @@ class _DownloadedWorkScreenState extends State<DownloadedWorkScreen> {
               IconButton(
                 tooltip: '不足分をダウンロード',
                 onPressed:
-                    _isFetchingEpisodeList || _isRefreshingWorkInformation
+                    _isFetchingEpisodeList ||
+                        _isRefreshingWorkInformation ||
+                        _isRefreshingDownloads
                     ? null
                     : _confirmAndDownloadMissing,
                 icon: _isFetchingEpisodeList
@@ -1507,6 +1713,7 @@ class _DownloadedWorkScreenState extends State<DownloadedWorkScreen> {
                     onPressed:
                         _isFetchingEpisodeList ||
                             _isRefreshingWorkInformation ||
+                            _isRefreshingDownloads ||
                             !hasDownloads ||
                             isDownloading
                         ? null

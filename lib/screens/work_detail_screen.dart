@@ -80,10 +80,11 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    '最新目次と照合し、更新が必要な保存済み本文を再取得します。\n'
+                    '最新目次と照合し、更新日時が異なる保存済み本文を再取得します。\n'
                     '新着話の追加ダウンロードは行いません。\n\n'
                     '識別情報のない旧データ・識別子不一致・'
                     '話番号が移動した話は保留します。\n'
+                    '更新日時が不明な話は、通常更新では本文未確認として保留します。\n'
                     '既読情報は変更しません。',
                   ),
                   const SizedBox(height: 8),
@@ -92,7 +93,10 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
                     contentPadding: EdgeInsets.zero,
                     value: forceRefresh,
                     title: const Text('更新日時が同じ話も再取得'),
-                    subtitle: const Text('識別子の一致確認は省略しません'),
+                    subtitle: const Text(
+                      '更新日時不明の話も再取得します。'
+                      '識別子の一致確認は省略しません',
+                    ),
                     onChanged: (value) {
                       setDialogState(() {
                         forceRefresh = value ?? false;
@@ -146,6 +150,27 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
             forceRefresh: forceRefresh,
             cancellation: cancellation,
             onProgress: onProgress,
+            confirmPlan: (plan) async {
+              if (!mounted ||
+                  !identical(widget.repository, repository) ||
+                  !identical(widget.work, input) ||
+                  cancellation.isRequested ||
+                  DownloadManager.instance.isDownloading(workId)) {
+                return false;
+              }
+
+              final accepted = await confirmDownloadRefreshPlan(
+                context: context,
+                plan: plan,
+              );
+
+              return accepted &&
+                  mounted &&
+                  identical(widget.repository, repository) &&
+                  identical(widget.work, input) &&
+                  !cancellation.isRequested &&
+                  !DownloadManager.instance.isDownloading(workId);
+            },
           );
         },
       );

@@ -86,7 +86,7 @@ void main() {
     );
   });
 
-  test('同じ識別子で改稿情報が不明なら更新候補', () {
+  test('改稿情報不明は通常更新で保留し、明示的な再取得では取得する', () {
     for (final stamps in [
       ['', ''],
       ['', 'known'],
@@ -97,7 +97,20 @@ void main() {
         entries: [latestEpisode(stamp: stamps[1])],
       );
 
-      expect(plan.items.single.decision, DownloadRefreshDecision.refresh);
+      expect(
+        plan.items.single.decision,
+        DownloadRefreshDecision.missingRevision,
+      );
+      expect(plan.refreshCount, 0);
+      expect(plan.unchangedCount, 0);
+      expect(plan.skippedCount, 1);
+
+      final forced = buildPlan(
+        downloads: [savedEpisode(stamp: stamps[0])],
+        entries: [latestEpisode(stamp: stamps[1])],
+        force: true,
+      );
+      expect(forced.items.single.decision, DownloadRefreshDecision.refresh);
     }
   });
 

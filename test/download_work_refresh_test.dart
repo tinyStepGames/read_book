@@ -214,6 +214,92 @@ void main() {
     expect(result.updatedCount, 3);
   });
 
+  test('日時不明は本文通信なしで保留し、明示指定時だけ再取得する', () async {
+    for (var number = 1; number <= 3; number++) {
+      final saved = downloads.get('n3380le_$number')!;
+      saved.sourceUpdatedAt = '';
+      await saved.save();
+    }
+    client.entries = [
+      entry(1, stamp: ''),
+      entry(2, stamp: ''),
+      entry(3, stamp: ''),
+    ];
+    final readAt = readMarks.get('n3380le_1')!.readAt;
+
+    final normal = await repository.refreshDownloadedWork(work: work);
+
+    expect(client.bodyCalls, isEmpty);
+    expect(normal.updatedCount, 0);
+    expect(normal.unchangedCount, 0);
+    expect(normal.skippedCount, 3);
+    expect(normal.unknownRevisionCount, 3);
+    expect(downloads.get('n3380le_1')!.body, '旧本文1');
+    expect(downloads.get('n3380le_1')!.episodeTitle, '旧タイトル1');
+    expect(readMarks.get('n3380le_1')!.readAt, readAt);
+
+    final forced = await repository.refreshDownloadedWork(
+      work: work,
+      forceRefresh: true,
+    );
+
+    expect(client.bodyCalls, [1, 2, 3]);
+    expect(forced.updatedCount, 3);
+    expect(forced.unknownRevisionCount, 0);
+    expect(readMarks.get('n3380le_1')!.readAt, readAt);
+  });
+  test('予定確認の承認前には本文を取得せず、目次を二重取得しない', () async {
+    var confirmations = 0;
+
+    final result = await repository.refreshDownloadedWork(
+      work: work,
+      confirmPlan: (plan) async {
+        confirmations++;
+        expect(plan.refreshCount, 3);
+        expect(client.listCalls, 1);
+        expect(client.bodyCalls, isEmpty);
+        return true;
+      },
+    );
+
+    expect(confirmations, 1);
+    expect(client.listCalls, 1);
+    expect(client.bodyCalls, [1, 2, 3]);
+    expect(result.updatedCount, 3);
+  });
+
+  test('予定確認で見送った場合は本文もタイトルも保存しない', () async {
+    final result = await repository.refreshDownloadedWork(
+      work: work,
+      confirmPlan: (_) async => false,
+    );
+
+    expect(client.listCalls, 1);
+    expect(client.bodyCalls, isEmpty);
+    expect(result.updatedCount, 0);
+    expect(result.titleUpdatedCount, 0);
+    expect(result.canceledCount, 3);
+    expect(downloads.get('n3380le_1')!.body, '旧本文1');
+    expect(downloads.get('n3380le_1')!.episodeTitle, '旧タイトル1');
+  });
+
+  test('予定確認中に変更された話は古い計画で上書きしない', () async {
+    final result = await repository.refreshDownloadedWork(
+      work: work,
+      confirmPlan: (_) async {
+        final first = downloads.get('n3380le_1')!;
+        first.body = '確認中に変更された本文';
+        await first.save();
+        return true;
+      },
+    );
+
+    expect(client.listCalls, 1);
+    expect(client.bodyCalls, [2, 3]);
+    expect(result.updatedCount, 2);
+    expect(result.skippedCount, 1);
+    expect(downloads.get('n3380le_1')!.body, '確認中に変更された本文');
+  });
   test('強制再取得は既知の同じ版にも適用する', () async {
     client.entries = [
       entry(1, stamp: 'old'),

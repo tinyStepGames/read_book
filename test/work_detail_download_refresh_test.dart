@@ -95,6 +95,7 @@ class _Repository extends NovelRepository {
     bool forceRefresh = false,
     DownloadRefreshCancellation? cancellation,
     void Function(int completed, int total)? onProgress,
+    Future<bool> Function(DownloadRefreshPlan plan)? confirmPlan,
   }) {
     calls++;
     receivedWork = work;

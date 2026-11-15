@@ -1,7 +1,68 @@
 import 'package:flutter/material.dart';
 
 import '../services/download_refresh_runner.dart';
+import '../services/download_refresh_planner.dart';
 import '../utils/app_log.dart';
+
+/// 本文再取得がある場合に、通信開始前の予定を確認します。
+/// 予定件数は結果の保証ではなく、実行時の競合などで保留になり得ます。
+Future<bool> confirmDownloadRefreshPlan({
+  required BuildContext context,
+  required DownloadRefreshPlan plan,
+}) async {
+  if (plan.refreshCount == 0) {
+    return true;
+  }
+
+  final unknownCount = plan.items
+      .where((item) => item.decision == DownloadRefreshDecision.missingRevision)
+      .length;
+  final otherSkipped = plan.skippedCount - unknownCount;
+
+  final accepted = await showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('本文再取得の予定'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('保存済みの照合対象: ${plan.items.length}話'),
+            Text('本文の再取得予定: ${plan.refreshCount}話'),
+            Text('既知の同じ版・本文取得なし: ${plan.unchangedCount}話'),
+            Text('更新日時不明・本文未確認で保留: $unknownCount話'),
+            Text('その他の保留予定: $otherSkipped話'),
+            const SizedBox(height: 12),
+            const Text(
+              '通信・挿絵の取得時間と、取得間隔の待機が必要です。'
+              '再取得予定が多い場合は時間がかかります。',
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              '実行時に削除・変更された話などは保留になります。'
+              '新着話の追加ダウンロードは行いません。',
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          key: const ValueKey('decline-download-refresh-plan'),
+          onPressed: () => Navigator.of(dialogContext).pop(false),
+          child: const Text('実行しない'),
+        ),
+        FilledButton(
+          key: const ValueKey('accept-download-refresh-plan'),
+          onPressed: () => Navigator.of(dialogContext).pop(true),
+          child: const Text('この内容で実行'),
+        ),
+      ],
+    ),
+  );
+  return accepted == true;
+}
 
 typedef RunDownloadRefresh =
     Future<DownloadRefreshBatchResult> Function(
@@ -142,6 +203,8 @@ class _DownloadRefreshDialogState extends State<DownloadRefreshDialog> {
         Text('タイトルのみ更新: ${result.titleUpdatedCount}話'),
         Text('変更なし: ${result.unchangedCount}話'),
         Text('保留: ${result.skippedCount}話'),
+        if (result.unknownRevisionCount > 0)
+          Text('うち更新日時不明: ${result.unknownRevisionCount}話（本文未確認）'),
         Text('失敗: ${result.failedCount}話'),
         Text('中止: ${result.canceledCount}話'),
         if (result.skippedCount > 0) ...[
@@ -149,6 +212,13 @@ class _DownloadRefreshDialogState extends State<DownloadRefreshDialog> {
           const Text(
             '保留には、識別情報の不足・不一致、話番号の移動、'
             '処理中のローカル変更などが含まれます。',
+          ),
+        ],
+        if (result.unknownRevisionCount > 0) ...[
+          const SizedBox(height: 12),
+          const Text(
+            '更新日時不明の話は「変更なし」と確認できたわけではありません。'
+            '本文を確認する場合は、再取得オプションをオンにして実行してください。',
           ),
         ],
         if (result.failedCount > 0) ...[
