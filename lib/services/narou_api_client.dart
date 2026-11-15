@@ -596,6 +596,63 @@ class NarouApiClient {
     );
   }
 
+  /// 更新専用。確認済みURLだけを取得し、404時の代替取得をしません。
+  Future<Episode> fetchEpisodeBodyForRefresh({
+    required String workId,
+    required int episodeNo,
+    required String episodeTitle,
+    required String sourceId,
+  }) async {
+    final normalizedId = workId.trim().toLowerCase();
+    final source = sourceId.trim();
+    final root = 'https://ncode.syosetu.com/$normalizedId/';
+    final numbered = '$root$episodeNo/';
+
+    if (!RegExp(r'^n[0-9]+[a-z]+$').hasMatch(normalizedId) ||
+        episodeNo <= 0 ||
+        (source != numbered && !(episodeNo == 1 && source == root))) {
+      throw ArgumentError('更新用の話URLが作品・話番号と一致しません。');
+    }
+
+    final response = await _dio.get<String>(
+      source,
+      options: Options(
+        responseType: ResponseType.plain,
+        validateStatus: (status) => status == 200,
+      ),
+    );
+
+    if (response.statusCode != 200) {
+      throw StateError('更新用本文を正常に取得できませんでした。');
+    }
+
+    final html = response.data ?? '';
+    if (html.trim().isEmpty) {
+      throw StateError('更新用本文のHTMLが空です。');
+    }
+
+    final document = html_parser.parse(html);
+    final element =
+        document.querySelector('.p-novel__body') ??
+        document.querySelector('#novel_honbun');
+    if (element == null) {
+      throw StateError('更新用の本文要素が見つかりません。');
+    }
+
+    final body = _encodeNarouEpisodeBody(element);
+    if (NovelBodyCodec.payloadOf(body).trim().isEmpty) {
+      throw StateError('更新用の本文が空です。');
+    }
+
+    return Episode(
+      workId: normalizedId,
+      episodeNo: episodeNo,
+      episodeTitle: episodeTitle,
+      body: body,
+      fetchedAt: DateTime.now(),
+    );
+  }
+
   /// なろうの前書き・本文・あとがきを区分して保存します。
   ///
   /// 前書き・本文・あとがきの間には区切り線を挿入します。

@@ -11,19 +11,26 @@ import '../models/saved_search.dart';
 import '../models/search_filters.dart';
 import '../models/site.dart';
 import '../models/work.dart';
+import '../utils/novel_body_codec.dart';
 import '../utils/work_metadata_merger.dart';
 import 'illustration_storage_service.dart';
 import 'kakuyomu_scraper.dart';
 import 'narou_api_client.dart';
 
 class NovelRepository {
-  NovelRepository({IllustrationStorageService? illustrationStorageService})
-    : illustrationStorageService =
-          illustrationStorageService ?? IllustrationStorageService();
+  NovelRepository({
+    IllustrationStorageService? illustrationStorageService,
+    NarouApiClient? narouApiClient,
+    KakuyomuScraper? kakuyomuScraper,
+  }) : illustrationStorageService =
+           illustrationStorageService ?? IllustrationStorageService(),
+       narouApiClient = narouApiClient ?? NarouApiClient(),
+       kakuyomuScraper = kakuyomuScraper ?? KakuyomuScraper();
 
   final IllustrationStorageService illustrationStorageService;
-  final NarouApiClient narouApiClient = NarouApiClient();
-  final KakuyomuScraper kakuyomuScraper = KakuyomuScraper();
+  final NarouApiClient narouApiClient;
+  final KakuyomuScraper kakuyomuScraper;
+  final Set<String> _refreshingDownloadKeys = <String>{};
 
   /// 作品詳細画面を開いたときに、サイトから完全な作品情報を取得します。
   ///
@@ -606,6 +613,152 @@ class NovelRepository {
             : '',
       ),
     );
+  }
+
+  /// 識別子が一致する保存済みの1話を更新します。
+  ///
+  /// falseは対象なし・識別子不一致・ローカル競合による保留です。
+  /// 取得・挿絵準備・保存の失敗は例外として呼び出し元へ返します。
+  /// このメソッド自身は目次全体の重複・移動判定を行いません。
+  Future<bool> refreshDownloadedEpisode({
+    required Work work,
+    required Map<String, String> episodeEntry,
+  }) async {
+    final workId = work.workId;
+    final siteIndex = work.siteIndex;
+    final siteKey = _siteKeyForWork(work);
+    final entry = Map<String, String>.from(episodeEntry);
+    final number = int.tryParse((entry['episodeNo'] ?? '').trim());
+    final sourceId = (entry['sourceId'] ?? '').trim();
+
+    if (number == null || number <= 0) {
+      throw ArgumentError('更新対象の話番号が不正です。');
+    }
+
+    final key = _key(workId, number);
+    if (!_refreshingDownloadKeys.add(key)) {
+      throw StateError('この話の更新処理はすでに実行中です。');
+    }
+
+    try {
+      final registeredWork = _workBox.get(workId);
+      final original = _downloadBox.get(key);
+
+      if (registeredWork == null ||
+          registeredWork.siteIndex != siteIndex ||
+          original == null ||
+          original.workId != workId ||
+          original.episodeNo != number ||
+          sourceId.isEmpty ||
+          original.sourceId.trim() != sourceId) {
+        return false;
+      }
+
+      // Hive管理中のオブジェクトを直接書き換えないためのスナップショット。
+      final snapshot = Download(
+        workId: original.workId,
+        episodeNo: original.episodeNo,
+        episodeTitle: original.episodeTitle,
+        body: original.body,
+        downloadedAt: original.downloadedAt,
+        publishedAt: original.publishedAt,
+        sourceId: original.sourceId,
+        sourceUpdatedAt: original.sourceUpdatedAt,
+      );
+
+      bool stillCurrent() {
+        final currentWork = _workBox.get(workId);
+        final current = _downloadBox.get(key);
+        return identical(currentWork, registeredWork) &&
+            currentWork != null &&
+            currentWork.workId == workId &&
+            currentWork.siteIndex == siteIndex &&
+            work.workId == workId &&
+            work.siteIndex == siteIndex &&
+            identical(current, original) &&
+            current != null &&
+            current.workId == snapshot.workId &&
+            current.episodeNo == snapshot.episodeNo &&
+            current.episodeTitle == snapshot.episodeTitle &&
+            current.body == snapshot.body &&
+            current.downloadedAt == snapshot.downloadedAt &&
+            current.publishedAt == snapshot.publishedAt &&
+            current.sourceId == snapshot.sourceId &&
+            current.sourceUpdatedAt == snapshot.sourceUpdatedAt;
+      }
+
+      final incomingTitle = (entry['title'] ?? '').trim();
+      final title = incomingTitle.isEmpty
+          ? snapshot.episodeTitle
+          : incomingTitle;
+
+      final site = Site.values[siteIndex];
+      late final Episode fetched;
+
+      if (site == Site.narou) {
+        fetched = await narouApiClient.fetchEpisodeBodyForRefresh(
+          workId: workId,
+          episodeNo: number,
+          episodeTitle: title,
+          sourceId: sourceId,
+        );
+      } else {
+        if (!RegExp(r'^[0-9]+$').hasMatch(workId) ||
+            !RegExp(r'^[0-9]+$').hasMatch(sourceId)) {
+          throw ArgumentError('更新対象のカクヨム識別子が不正です。');
+        }
+        fetched = await kakuyomuScraper.fetchEpisodeBody(
+          workId: workId,
+          episodeId: sourceId,
+          episodeNo: number,
+          episodeTitle: title,
+        );
+      }
+
+      if (fetched.workId.toLowerCase() != workId.toLowerCase() ||
+          fetched.episodeNo != number ||
+          NovelBodyCodec.payloadOf(fetched.body).trim().isEmpty) {
+        throw StateError('取得した更新用本文の作品・話番号・内容が不正です。');
+      }
+
+      if (!stillCurrent()) {
+        return false;
+      }
+
+      final preparedBody = await illustrationStorageService
+          .prepareRefreshedBody(
+            siteKey: siteKey,
+            workId: workId,
+            episodeNo: number,
+            body: fetched.body,
+          );
+
+      if (NovelBodyCodec.payloadOf(preparedBody).trim().isEmpty) {
+        throw StateError('挿絵準備後の更新用本文が空です。');
+      }
+
+      // 取得・挿絵準備の間に削除・変更された本文を復活・上書きしません。
+      if (!stillCurrent()) {
+        return false;
+      }
+
+      final publishedAt = (entry['publishedAt'] ?? '').trim();
+      final replacement = Download(
+        workId: workId,
+        episodeNo: number,
+        episodeTitle: title,
+        body: preparedBody,
+        downloadedAt: DateTime.now(),
+        publishedAt: publishedAt.isEmpty ? snapshot.publishedAt : publishedAt,
+        sourceId: sourceId,
+        sourceUpdatedAt: (entry['sourceUpdatedAt'] ?? '').trim(),
+      );
+
+      await _downloadBox.put(key, replacement);
+      return true;
+    } finally {
+      _refreshingDownloadKeys.remove(key);
+    }
   }
 
   /// 1話分の既存ダウンロードへ掲載日を設定します。
