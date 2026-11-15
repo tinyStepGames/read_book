@@ -551,13 +551,17 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
   Future<void> _downloadSingle(
     int episodeNo,
     String title,
-    String publishedAt,
-  ) async {
+    String publishedAt, {
+    String sourceId = '',
+    String sourceUpdatedAt = '',
+  }) async {
     await DownloadManager.instance.downloadSingle(
       work: widget.work,
       episodeNo: episodeNo,
       episodeTitle: title,
       publishedAt: publishedAt,
+      sourceId: sourceId,
+      sourceUpdatedAt: sourceUpdatedAt,
     );
 
     if (!mounted) {
@@ -943,6 +947,12 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
                                                           entry['update'] ??
                                                           entry['published'] ??
                                                           entry['updatedAt'] ??
+                                                          '',
+                                                      sourceId:
+                                                          entry['sourceId'] ??
+                                                          '',
+                                                      sourceUpdatedAt:
+                                                          entry['sourceUpdatedAt'] ??
                                                           '',
                                                     );
                                                   },
