@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html_parser;
 
+import '../utils/episode_source_metadata.dart';
 import '../models/episode.dart';
 import '../models/search_filters.dart';
 import '../models/site.dart';
@@ -644,10 +645,14 @@ class KakuyomuScraper {
       episodes.add(<String, String>{
         'episodeNo': episodeNo.toString(),
         'episodeId': episodeId,
+        'sourceId': episodeId,
         'title': title,
         'url': episodeUrl,
         'update': publishedAt,
         'publishedAt': publishedAt,
+        'sourceUpdatedAt': EpisodeSourceMetadata.kakuyomuUpdatedAt(
+          episodeData['edited_at'],
+        ),
       });
     }
 
@@ -877,10 +882,12 @@ class KakuyomuScraper {
       episodes.add(<String, String>{
         'episodeNo': episodeNo.toString(),
         'episodeId': episodeId,
+        'sourceId': episodeId,
         'title': title,
         'url': episodeUrl,
         'update': publishedDate,
         'publishedAt': publishedDate,
+        'sourceUpdatedAt': '',
       });
 
       episodeIdMap[episodeNo] = episodeId;

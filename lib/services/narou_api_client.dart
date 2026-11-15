@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html_parser;
 
+import '../utils/episode_source_metadata.dart';
 import '../models/episode.dart';
 import '../models/search_filters.dart';
 import '../models/site.dart';
@@ -412,6 +413,10 @@ class NarouApiClient {
             'episodeNo': episodeNo.toString(),
             'title': title,
             'url': fullUrl,
+            'sourceId': fullUrl,
+            'sourceUpdatedAt': EpisodeSourceMetadata.narouUpdatedAt(
+              updateElement,
+            ),
             'update': publishedAt,
             'publishedAt': publishedAt,
           };
@@ -458,6 +463,10 @@ class NarouApiClient {
               'episodeNo': episodeNo.toString(),
               'title': title,
               'url': fullUrl,
+              'sourceId': fullUrl,
+              'sourceUpdatedAt': EpisodeSourceMetadata.narouUpdatedAt(
+                updateElement,
+              ),
               'update': publishedAt,
               'publishedAt': publishedAt,
             };
@@ -511,6 +520,8 @@ class NarouApiClient {
         'episodeNo': '1',
         'title': workTitle.isEmpty ? '本文' : workTitle,
         'url': workUrl,
+        'sourceId': workUrl,
+        'sourceUpdatedAt': '',
         'update': publishedAt,
         'publishedAt': publishedAt,
       },
