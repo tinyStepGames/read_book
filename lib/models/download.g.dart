@@ -23,13 +23,15 @@ class DownloadAdapter extends TypeAdapter<Download> {
       body: fields[3] as String,
       downloadedAt: fields[4] as DateTime,
       publishedAt: fields[5] == null ? '' : fields[5] as String,
+      sourceId: fields[6] == null ? '' : fields[6] as String,
+      sourceUpdatedAt: fields[7] == null ? '' : fields[7] as String,
     );
   }
 
   @override
   void write(BinaryWriter writer, Download obj) {
     writer
-      ..writeByte(6)
+      ..writeByte(8)
       ..writeByte(0)
       ..write(obj.workId)
       ..writeByte(1)
@@ -41,7 +43,11 @@ class DownloadAdapter extends TypeAdapter<Download> {
       ..writeByte(4)
       ..write(obj.downloadedAt)
       ..writeByte(5)
-      ..write(obj.publishedAt);
+      ..write(obj.publishedAt)
+      ..writeByte(6)
+      ..write(obj.sourceId)
+      ..writeByte(7)
+      ..write(obj.sourceUpdatedAt);
   }
 
   @override

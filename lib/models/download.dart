@@ -23,6 +23,20 @@ class Download extends HiveObject {
   @HiveField(5, defaultValue: '')
   String publishedAt;
 
+  /// サイト側で各話を一意に識別する値です。
+  ///
+  /// カクヨムではepisodeId、小説家になろうでは話URLを保存します。
+  /// 既存データでは空文字です。
+  @HiveField(6, defaultValue: '')
+  String sourceId;
+
+  /// サイト側で確認できた各話の最終更新情報です。
+  ///
+  /// 本文改稿の再取得判定に使用します。
+  /// 既存データや更新情報を取得できない場合は空文字です。
+  @HiveField(7, defaultValue: '')
+  String sourceUpdatedAt;
+
   Download({
     required this.workId,
     required this.episodeNo,
@@ -30,5 +44,7 @@ class Download extends HiveObject {
     required this.body,
     required this.downloadedAt,
     this.publishedAt = '',
+    this.sourceId = '',
+    this.sourceUpdatedAt = '',
   });
 }
