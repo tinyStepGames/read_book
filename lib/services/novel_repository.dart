@@ -767,6 +767,8 @@ class NovelRepository {
           episodeNo: episodeNo,
           episodeTitle: title,
           publishedAt: publishedAt,
+          sourceId: entry['sourceId'] ?? '',
+          sourceUpdatedAt: entry['sourceUpdatedAt'] ?? '',
         );
 
         await Future<void>.delayed(const Duration(seconds: 1));

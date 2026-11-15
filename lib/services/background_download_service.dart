@@ -136,6 +136,8 @@ class BackgroundDownloadService {
         'episodeNo': episodeNo,
         'episodeTitle': title,
         'publishedAt': publishedAt,
+        'sourceId': entry['sourceId'] ?? '',
+        'sourceUpdatedAt': entry['sourceUpdatedAt'] ?? '',
       });
 
       tasks.add(
@@ -219,6 +221,8 @@ class BackgroundDownloadService {
     final episodeNo = _toInt(metadata['episodeNo']);
     final episodeTitle = metadata['episodeTitle']?.toString() ?? '第$episodeNo話';
     final publishedAt = metadata['publishedAt']?.toString() ?? '';
+    final sourceId = metadata['sourceId']?.toString() ?? '';
+    final sourceUpdatedAt = metadata['sourceUpdatedAt']?.toString() ?? '';
 
     if (workId.isEmpty ||
         episodeNo <= 0 ||
@@ -267,6 +271,8 @@ class BackgroundDownloadService {
         episodeTitle: episodeTitle,
         body: body,
         publishedAt: publishedAt,
+        sourceId: sourceId,
+        sourceUpdatedAt: sourceUpdatedAt,
       );
     }
 

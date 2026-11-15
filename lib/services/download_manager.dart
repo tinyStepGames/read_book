@@ -131,6 +131,8 @@ class DownloadManager {
     required int episodeNo,
     required String episodeTitle,
     String publishedAt = '',
+    String sourceId = '',
+    String sourceUpdatedAt = '',
   }) async {
     if (_repository.isDownloaded(work, episodeNo)) {
       if (publishedAt.trim().isNotEmpty) {
@@ -149,6 +151,8 @@ class DownloadManager {
       episodeNo: episodeNo,
       episodeTitle: episodeTitle,
       publishedAt: publishedAt,
+      sourceId: sourceId,
+      sourceUpdatedAt: sourceUpdatedAt,
     );
 
     _progressController.add(
@@ -263,6 +267,8 @@ class DownloadManager {
               episodeNo: episodeNo,
               episodeTitle: title,
               publishedAt: publishedAt,
+              sourceId: entry['sourceId'] ?? '',
+              sourceUpdatedAt: entry['sourceUpdatedAt'] ?? '',
             );
 
             succeeded = _repository.isDownloaded(work, episodeNo);
